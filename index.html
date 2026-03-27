@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
+  <title>Aetheris Odyssey</title>
+</head>
+<body>
+
+<div id="startScreen" class="screen">
+  <h1>Aetheris Odyssey</h1>
+  <p>Open-world adventure with unique character kits, diverse enemies, multi-phase boss, inventory, elemental reactions, and day/night cycle.</p>
+  <div class="controlsCard panel">
+    <div><span class="key">WASD</span>Move</div><div><span class="key">Mouse</span>Look</div>
+    <div><span class="key">Space</span>Jump / Glide</div><div><span class="key">Shift</span>Dodge</div>
+    <div><span class="key">LMB</span>Attack</div><div><span class="key">E</span>Skill</div>
+    <div><span class="key">Q</span>Burst</div><div><span class="key">F</span>Interact</div>
+    <div><span class="key">1-4</span>Party switch</div><div><span class="key">Tab</span>Inventory</div>
+  </div>
+  <button id="startBtn" class="btn">Enter World</button>
+</div>
+
+<div id="deathScreen" class="screen">
+  <h1>You have fallen.</h1>
+  <p>The ley line will restore your party.</p>
+  <button id="respawnBtn" class="btn">Revive</button>
+</div>
+
+<div id="uiRoot">
+  <div id="damageOverlay"></div>
+  <div id="crosshair"><span></span></div>
+
+  <div id="topLeft">
+    <div id="mapCard">
+      <canvas id="minimapCanvas" width="200" height="200"></canvas>
+      <div id="northLabel">N</div>
+      <div id="regionLabel">Aetheris Highlands</div>
+    </div>
+    <div id="questTracker" class="panel">
+      <div id="questHeader">Current Objective</div>
+      <div id="objectiveText">Speak with the Guide</div>
+      <div id="objectiveSubtext">Begin the adventure.</div>
+    </div>
+  </div>
+
+  <div id="moraDisplay" class="panel"><span>🪙</span><span id="moraValue">0</span></div>
+
+  <div id="topRight">
+    <div class="pill panel">FPS <strong id="fpsValue">60</strong></div>
+    <div class="pill panel"><span id="pingValue" class="good">32ms</span></div>
+    <div class="menuIcon panel" id="bagBtn">🎒</div>
+  </div>
+
+  <div id="bossBar">
+    <div id="bossName"></div>
+    <div id="bossPhaseLabel"></div>
+    <div id="bossHpOuter"><div id="bossHpFill"></div></div>
+  </div>
+
+  <div id="targetInfo" class="panel">
+    <div style="display:flex;align-items:center;gap:4px">
+      <div id="targetName">Slime</div>
+      <div id="targetLevel">Lv.5</div>
+    </div>
+    <div id="targetBar"><div id="targetBarFill"></div></div>
+  </div>
+
+  <div id="partyColumn"></div>
+  <div id="centerPrompt" style="display:none"><strong>F</strong><span id="promptText">Talk</span></div>
+
+  <div id="dialogueBox" class="panel" style="display:none">
+    <div id="dialogueName">Guide</div>
+    <div id="dialogueText">...</div>
+    <div id="dialogueHint">Click to continue</div>
+  </div>
+
+  <div id="bottomCenter" class="panel">
+    <div id="playerMeta">
+      <div id="playerNameBox">
+        <div id="playerAvatar">A</div>
+        <div><div id="playerName">Aerin</div><div id="playerLevel">Lv.1</div></div>
+      </div>
+      <div id="hpNumbers">100/100</div>
+    </div>
+    <div class="statBar"><div id="hpFill" class="statFill"></div><div id="shieldFill"></div></div>
+    <div id="staminaMini">
+      <div id="staminaMiniLabel">STA</div>
+      <div id="staminaMiniBar"><div id="staminaMiniFill"></div></div>
+      <div id="staminaValue">100%</div>
+    </div>
+    <div id="xpBarOuter"><div id="xpBarFill"></div></div>
+  </div>
+
+  <div id="comboDisplay">
+    <div id="comboCount">0</div>
+    <div id="comboLabel">H I T S</div>
+    <div id="comboMultiplier">×1.0</div>
+  </div>
+
+  <div id="bottomRight">
+    <div id="skillBtn" class="skillButton panel">
+      <div class="energyArc" id="skillArc"></div>
+      <div class="skillInner"></div>
+      <div class="skillKeyLabel">E</div>
+      <div class="skillGlyph" id="skillGlyph">✦</div>
+      <div class="skillCd" id="skillCdText"></div>
+      <div class="skillDesc" id="skillDescText"></div>
+    </div>
+    <div id="burstBtn" class="skillButton large panel">
+      <div class="energyArc" id="burstArc"></div>
+      <div class="skillInner"></div>
+      <div class="skillKeyLabel">Q</div>
+      <div class="skillGlyph" id="burstGlyph">✹</div>
+      <div class="skillCd" id="burstCdText"></div>
+      <div class="skillDesc" id="burstDescText"></div>
+    </div>
+  </div>
+
+  <div id="hintText">Switch characters for reactions. Tab opens inventory. Find chests for gear!</div>
+  <div id="levelUpOverlay"><div id="levelUpText">LEVEL UP</div><div id="levelUpSub"></div></div>
+  <div id="reactionBanner"></div>
+</div>
+
+<div id="inventoryOverlay">
+  <div id="invHeader">INVENTORY</div>
+  <div id="invClose">✕ Close</div>
+  <div id="invBody">
+    <div class="invSection">
+      <div class="invSectionTitle">Equipped</div>
+      <div id="invEquipSlots"></div>
+      <div class="invSectionTitle" style="margin-top:16px">Stats</div>
+      <div id="invStats"></div>
+    </div>
+    <div class="invSection" style="flex:1.5">
+      <div class="invSectionTitle">Weapons</div>
+      <div id="invWeapons"></div>
+      <div class="invSectionTitle" style="margin-top:16px">Artifacts</div>
+      <div id="invArtifacts"></div>
+    </div>
+    <div class="invSection">
+      <div class="invSectionTitle">Food</div>
+      <div id="invFood"></div>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>
