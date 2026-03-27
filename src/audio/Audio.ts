@@ -5,9 +5,14 @@ let mGain: GainNode | null = null;
 let dNode: DelayNode | null = null;
 let ambTO: ReturnType<typeof setTimeout> | null = null;
 
+/* ─── Background Music ─── */
+let bgMusic: HTMLAudioElement | null = null;
+let bgMusicPlaying = false;
+
 export function ensureAudio(): void {
   if (actx) {
     if (actx.state === 'suspended') actx.resume();
+    startBGMusic();
     return;
   }
   actx = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -21,6 +26,22 @@ export function ensureAudio(): void {
   dNode.connect(fb);
   fb.connect(dNode);
   dNode.connect(mGain);
+
+  startBGMusic();
+}
+
+function startBGMusic(): void {
+  if (bgMusicPlaying) return;
+  if (!bgMusic) {
+    bgMusic = new Audio('/audio/music/Beyond_the_Winding_Ridge.mp3');
+    bgMusic.loop = true;
+    bgMusic.volume = 0.18;
+  }
+  bgMusic.play().then(() => {
+    bgMusicPlaying = true;
+  }).catch(() => {
+    /* Autoplay blocked — will retry on next user interaction */
+  });
 }
 
 function syn(
@@ -70,17 +91,8 @@ export const SFX = {
 };
 
 export function scheduleAmbient(): void {
+  /* Background music replaces the generative ambient —
+     keep this function as a no-op to avoid breaking callers */
   if (ambTO !== null) clearTimeout(ambTO);
-  if (!G.isActive) {
-    G.needsAmbient = true;
-    return;
-  }
   G.needsAmbient = false;
-  const notes = [174.61, 196, 220, 261.63, 293.66, 349.23];
-  const b = notes[Math.floor(Math.random() * notes.length)];
-  syn(b, 'sine', 4.2, 0.05);
-  if (Math.random() > 0.5) {
-    setTimeout(() => syn(b * 2, 'triangle', 2.4, 0.025), 800 + Math.random() * 400);
-  }
-  ambTO = setTimeout(scheduleAmbient, 2600 + Math.random() * 2200);
 }

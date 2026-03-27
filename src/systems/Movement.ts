@@ -100,6 +100,12 @@ function resolveSpawnCol(nx: THREE.Vector3 & { onPlatform?: boolean }): void {
 function resolveGroundCol(nx: THREE.Vector3 & { onPlatform?: boolean }): void {
   let g = wH(nx.x, nx.z);
   if (nx.onPlatform) g = 2;
+
+  // Snap to ground to prevent falling when walking down steep slopes or cresting hills
+  if (G.isGrounded && G.pVel.y <= 0 && nx.y > g && nx.y - g < 2.0) {
+    nx.y = g;
+  }
+
   if (nx.y <= g) {
     nx.y = g;
     G.pVel.y = 0;

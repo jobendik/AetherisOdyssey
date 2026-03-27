@@ -43,6 +43,12 @@ export const G = {
   terrain: null as THREE.Mesh | null,
   water: null as THREE.Mesh | null,
 
+  /* Animation (skeletal) */
+  mixer: null as THREE.AnimationMixer | null,
+  animActions: null as Record<string, THREE.AnimationAction> | null,
+  currentAnim: null as string | null,
+  modelLoaded: false,
+
   /* Time */
   worldTime: 0,
   dayTime: 0.3,
