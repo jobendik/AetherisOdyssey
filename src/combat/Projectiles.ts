@@ -4,6 +4,7 @@ import type { EnemyEntity } from '../types';
 import { SFX } from '../audio/Audio';
 import { ENEMY_TYPES } from '../data/EnemyData';
 import { takeDamage } from './DamageSystem';
+import { isNight } from '../entities/Enemy';
 
 export function shootArrow(e: EnemyEntity): void {
   SFX.arrow();
@@ -15,7 +16,8 @@ export function shootArrow(e: EnemyEntity): void {
   proj.position.copy(e.mesh.position).add(new THREE.Vector3(0, 1.5, 0));
   G.scene!.add(proj);
   const et = ENEMY_TYPES[e.archetype];
-  G.projectiles.push({ mesh: proj, vel: dir.multiplyScalar(18), life: 3, dmg: et.dmg });
+  const nightX = isNight() ? 1.4 : 1;
+  G.projectiles.push({ mesh: proj, vel: dir.multiplyScalar(18), life: 3, dmg: et.dmg * (e.isElite ? 1.5 : 1) * nightX });
 }
 
 export function updateProjectiles(dt: number): void {

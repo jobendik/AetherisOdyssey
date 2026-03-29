@@ -4,18 +4,72 @@ import { clamp, distXZ } from '../core/Helpers';
 import { SFX } from '../audio/Audio';
 import { spawnParts, spawnRing } from '../systems/Particles';
 import { spawnDmg } from '../ui/DamageNumbers';
-import { tryReaction } from './Reactions';
-import { dmgEnemy, trigShake } from './DamageSystem';
+import { tryReaction, envReaction } from './Reactions';
+import { dmgEnemy, trigShake, Shake } from './DamageSystem';
 import { addCombo } from './Combo';
 import { calcStats } from '../systems/Inventory';
 import { updateHUD } from '../ui/HUD';
+
+/* ──── Elemental ground rune: glowing circle at cast location ──── */
+function spawnGroundRune(pos: THREE.Vector3, color: string, radius: number): void {
+  const outerGeo = new THREE.RingGeometry(radius * 0.85, radius, 32);
+  const innerGeo = new THREE.RingGeometry(radius * 0.3, radius * 0.4, 6);
+  const mat = new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity: 0.7,
+    side: THREE.DoubleSide,
+  });
+
+  const rune = new THREE.Group();
+  const outer = new THREE.Mesh(outerGeo, mat.clone());
+  outer.rotation.x = -Math.PI / 2;
+  const inner = new THREE.Mesh(innerGeo, mat.clone());
+  inner.rotation.x = -Math.PI / 2;
+  rune.add(outer);
+  rune.add(inner);
+  rune.position.copy(pos);
+  rune.position.y += 0.15;
+  G.scene!.add(rune);
+
+  /* Animate: expand + spin + fade */
+  const life = 0.8;
+  let t = 0;
+  const tick = () => {
+    t += 0.016;
+    if (t >= life) {
+      G.scene!.remove(rune);
+      outer.geometry.dispose();
+      inner.geometry.dispose();
+      (outer.material as THREE.MeshBasicMaterial).dispose();
+      (inner.material as THREE.MeshBasicMaterial).dispose();
+      return;
+    }
+    const prog = t / life;
+    const scale = 0.5 + prog * 0.5;
+    rune.scale.setScalar(scale);
+    rune.rotation.y += 0.06;
+    (outer.material as THREE.MeshBasicMaterial).opacity = 0.7 * (1 - prog);
+    (inner.material as THREE.MeshBasicMaterial).opacity = 0.5 * (1 - prog);
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
 
 export function useSkill(): void {
   if (G.skillCd > 0 || G.inDialogue) return;
   const m = mem();
   const stats = calcStats();
   G.skillCd = m.skillCdMax;
+  G.skillTimer = 0.6;
   SFX.skill();
+  SFX.barkSkill();
+
+  /* ──── Elemental ground rune ──── */
+  spawnGroundRune(G.player!.position.clone(), m.accent, m.skillRadius);
+
+  /* ──── Environmental reaction ──── */
+  envReaction(G.player!.position.clone(), m.element, m.skillRadius);
 
   if (m.skillType === 'vortex') {
     spawnRing(G.player!.position.clone().add(new THREE.Vector3(0, 1, 0)), m.accent, m.skillRadius);

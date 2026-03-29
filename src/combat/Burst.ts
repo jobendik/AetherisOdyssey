@@ -4,19 +4,28 @@ import { clamp, distXZ, rnd } from '../core/Helpers';
 import { SFX } from '../audio/Audio';
 import { spawnParts, spawnRing } from '../systems/Particles';
 import { spawnDmg } from '../ui/DamageNumbers';
-import { tryReaction } from './Reactions';
-import { dmgEnemy, trigShake } from './DamageSystem';
+import { tryReaction, envReaction } from './Reactions';
+import { dmgEnemy, trigShake, Shake } from './DamageSystem';
 import { addCombo } from './Combo';
 import { calcStats } from '../systems/Inventory';
 import { updateHUD } from '../ui/HUD';
+import { ui } from '../ui/UIRefs';
 
 export function useBurst(): void {
   if (G.burstCd > 0 || G.inDialogue || G.burstEnergy < 100) return;
   const m = mem();
   const stats = calcStats();
   G.burstCd = m.burstCdMax;
+  G.burstTimer = 0.8;
   G.burstEnergy = 0;
   SFX.burst();
+  SFX.barkBurst();
+
+  /* Cinematic burst flash */
+  ui.burstFlash.style.background = `radial-gradient(circle at center, ${m.burst}cc 0%, transparent 70%)`;
+  ui.burstFlash.classList.add('active');
+  setTimeout(() => ui.burstFlash.classList.remove('active'), 400);
+
   spawnRing(G.player!.position.clone().add(new THREE.Vector3(0, 1, 0)), m.burst, m.burstRadius);
   spawnParts(G.player!.position.clone().add(new THREE.Vector3(0, 1, 0)), m.burst, 42, 20);
 
@@ -63,7 +72,8 @@ export function useBurst(): void {
       SFX.heal();
     }
   }
-  trigShake(0.8, 0.3);
+  Shake.massive();
+  envReaction(G.player!.position.clone(), m.element, m.burstRadius);
   G.hitstop = 0.1;
   updateHUD(true);
 }
