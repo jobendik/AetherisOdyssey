@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import type {
   InventoryState,
   EntitiesContainer,
@@ -13,7 +14,7 @@ export const keys = { w: 0, a: 0, s: 0, d: 0, shift: 0, space: 0 };
 /* ──────── Constants ──────── */
 export const W = 140;
 export const CAM_D = 6.4;
-export const P_RAD = 0.55;
+export const P_RAD = 0.7;
 export const GRAV = 34;
 
 /* ──────── Global Game State ──────── */
@@ -54,7 +55,7 @@ export const G = {
   dayTime: 0.3,
 
   /* Camera */
-  camYaw: 0,
+  camYaw: 0.8,
   camPitch: 0.25,
   baseFov: 70,
 
@@ -66,11 +67,14 @@ export const G = {
   moveVec: new THREE.Vector3(),
 
   /* Combat timers */
+  combatTimer: 0,
   atkTimer: 0,
   atkCombo: 0,
   invulnTimer: 0,
   dashTimer: 0,
   dashCd: 0,
+  skillTimer: 0,
+  burstTimer: 0,
   activeIdx: 0,
 
   /* Combat stats */
@@ -85,6 +89,7 @@ export const G = {
   maxShield: 0,
   shieldTimer: 0,
   isSprinting: false,
+  sprintLocked: false,
   target: null as EnemyEntity | null,
 
   /* Combo */
@@ -97,6 +102,7 @@ export const G = {
   xpNext: 50,
   lv: 1,
   mora: 0,
+  oreMaterials: 0,
 
   /* Effects */
   screenShake: 0,
@@ -119,6 +125,42 @@ export const G = {
 
   /* Lighting */
   sunLight: null as THREE.DirectionalLight | null,
+  skyDome: null as THREE.Mesh | null,
+
+  /* Post-processing */
+  composer: null as EffectComposer | null,
+
+  /* Slash trail */
+  slashTrail: null as THREE.Mesh | null,
+  slashTrailPts: [] as THREE.Vector3[],
+  slashTrailTimer: 0,
+
+  /* Ambient particles */
+  ambientParticles: null as THREE.Points | null,
+
+  /* Sprint dust timer */
+  sprintDustTimer: 0,
+
+  /* Plunging attack */
+  isPlunging: false,
+  plungeTimer: 0,
+
+  /* Climbing */
+  isClimbing: false,
+  climbSurface: null as THREE.Vector3 | null, // normal of surface being climbed
+
+  /* Swimming */
+  isSwimming: false,
+
+  /* Charged attack */
+  chargeTimer: 0,
+  isCharging: false,
+
+  /* Footstep timer */
+  footstepTimer: 0,
+
+  /* Lock-on targeting */
+  lockOnTarget: null as import('../types').EnemyEntity | null,
 
   /* Waves & boss */
   enemiesKilled: 0,
@@ -139,7 +181,11 @@ export const G = {
     food: ['f1', 'f1', 'f1'],
     equippedWeapon: 'w1',
     equippedArtifact: null,
+    equippedArtifacts: [],
   } as InventoryState,
+
+  /* Weapon enhancement levels */
+  weaponLevels: {} as Record<string, number>,
 
   /* Projectiles */
   projectiles: [] as Array<{
@@ -161,6 +207,7 @@ export const G = {
     particles: [],
     windParticles: [],
     chests: [],
+    props: [],
   } as EntitiesContainer,
 };
 

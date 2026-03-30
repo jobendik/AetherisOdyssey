@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 
+import type { DestructibleProp } from './world/Props';
+
 /* ──────────────────────────── Party Member ──────────────────────────── */
 export interface PartyMember {
   name: string;
@@ -34,7 +36,7 @@ export interface PartyMember {
 export type ElementType = 'Anemo' | 'Electro' | 'Cryo' | 'Pyro' | 'Hydro';
 export type SkillType = 'vortex' | 'bolt' | 'shield' | 'dash';
 export type BurstType = 'tornado' | 'storm' | 'blizzard' | 'meteor';
-export type EnemyArchetype = 'slime' | 'archer' | 'shield' | 'wisp';
+export type EnemyArchetype = 'slime' | 'archer' | 'shield' | 'wisp' | 'mage' | 'bomber';
 
 /* ──────────────────────────── Enemy ──────────────────────────── */
 export interface SlimeType {
@@ -76,8 +78,14 @@ export interface EnemyEntity {
   archetype: EnemyArchetype;
   shieldHp: number;
   maxShieldHp: number;
+  isElite?: boolean;
   phaseTimer?: number;
+  mixer?: THREE.AnimationMixer;
+  animActions?: Record<string, THREE.AnimationAction>;
+  currentAnim?: string;
 }
+
+export type WeaponType = 'sword' | 'claymore' | 'polearm' | 'bow' | 'catalyst';
 
 /* ──────────────────────────── Items ──────────────────────────── */
 export interface Weapon {
@@ -87,6 +95,7 @@ export interface Weapon {
   rarity: number;
   atk: number;
   desc: string;
+  wtype: WeaponType;
 }
 
 export interface Artifact {
@@ -97,6 +106,13 @@ export interface Artifact {
   stat: string;
   val: number;
   desc: string;
+  setId?: string;
+}
+
+export interface ArtifactSetBonus {
+  name: string;
+  two: { stat: string; val: number; desc: string };
+  four: { stat: string; val: number; desc: string };
 }
 
 export interface Food {
@@ -121,6 +137,7 @@ export interface InventoryState {
   food: string[];
   equippedWeapon: string;
   equippedArtifact: string | null;
+  equippedArtifacts: string[];
 }
 
 /* ──────────────────────────── Stats ──────────────────────────── */
@@ -200,4 +217,5 @@ export interface EntitiesContainer {
   particles: ParticleEntity[];
   windParticles: THREE.Mesh[];
   chests: ChestEntity[];
+  props: DestructibleProp[];
 }

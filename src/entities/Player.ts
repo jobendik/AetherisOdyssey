@@ -12,6 +12,14 @@ const ANIM_PATHS: Record<string, string> = {
   jumpDown: '/models/animations/Jumping Down.fbx',
   land: '/models/animations/Falling To Landing.fbx',
   fly: '/models/animations/Flying.fbx',
+  attack1: '/models/animations/Attack1.fbx',
+  attack2: '/models/animations/Attack2.fbx',
+  attack3: '/models/animations/Attaxk3.fbx',
+  hit: '/models/animations/Hit To Body.fbx',
+  dash: '/models/animations/dash.fbx',
+  skill: '/models/animations/Standing 2H Cast Spell 01.fbx',
+  burst: '/models/animations/Wide Arm Spell Casting.fbx',
+  death: '/models/animations/Standing React Death Backward.fbx',
 };
 
 export async function loadPlayerModel(): Promise<void> {
@@ -21,7 +29,7 @@ export async function loadPlayerModel(): Promise<void> {
   const fbx = await loader.loadAsync('/models/characters/player.fbx');
 
   /* Scale down — Mixamo FBX models are typically in cm */
-  const desiredHeight = 2.5;
+  const desiredHeight = 3.5;
   const box = new THREE.Box3().setFromObject(fbx);
   const currentHeight = box.max.y - box.min.y;
   const scaleFactor = desiredHeight / currentHeight;
@@ -42,11 +50,14 @@ export async function loadPlayerModel(): Promise<void> {
 
   /* Replace the procedural playerModel with the loaded FBX */
   if (G.playerModel) {
-    /* Remove all procedural children */
+    /* Remove all procedural children (but save glider reference) */
+    const savedGlider = G.glider;
     while (G.playerModel.children.length) {
       G.playerModel.remove(G.playerModel.children[0]);
     }
     G.playerModel.add(fbx);
+    /* Re-attach glider to playerModel so it follows rotation */
+    if (savedGlider) G.playerModel.add(savedGlider);
   }
 
   /* ─── Set up AnimationMixer ─── */
@@ -63,7 +74,9 @@ export async function loadPlayerModel(): Promise<void> {
         const action = G.mixer!.clipAction(clip);
 
         /* Configure action defaults */
-        if (name === 'jumpUp' || name === 'jumpDown' || name === 'land') {
+        if (
+          ['jumpUp', 'jumpDown', 'land', 'attack1', 'attack2', 'attack3', 'hit', 'dash', 'skill', 'burst', 'death'].includes(name)
+        ) {
           action.setLoop(THREE.LoopOnce, 1);
           action.clampWhenFinished = true;
         }
@@ -85,11 +98,80 @@ export async function loadPlayerModel(): Promise<void> {
 
   G.modelLoaded = true;
   console.log('✅ Player model + animations loaded');
+
+  /* ─── Load Wings FBX model ─── */
+  try {
+    const wingsFbx = await loader.loadAsync('/models/glider/Wings.fbx');
+
+    /* Load wing textures */
+    const texLoader = new THREE.TextureLoader();
+    const featherTex = texLoader.load('/models/glider/1_AcmbDMNBF2iG-hBpqi9ibg.png');
+    const boneTex = texLoader.load('/models/glider/depositphotos_53726629-stock-photo-bone-seamless-texture-til.jpeg');
+
+    /* Apply materials to wing meshes */
+    wingsFbx.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        const mesh = child as THREE.Mesh;
+        mesh.castShadow = true;
+        const name = mesh.name.toLowerCase();
+        if (name.includes('bone') || name.includes('frame') || name.includes('arm')) {
+          mesh.material = new THREE.MeshStandardMaterial({
+            map: boneTex,
+            flatShading: false,
+            roughness: 0.8,
+          });
+        } else {
+          mesh.material = new THREE.MeshStandardMaterial({
+            map: featherTex,
+            transparent: true,
+            alphaTest: 0.3,
+            side: THREE.DoubleSide,
+            flatShading: false,
+            roughness: 0.6,
+          });
+        }
+      }
+    });
+
+    /* ─── Measure raw model ─── */
+    wingsFbx.updateMatrixWorld(true);
+    const wingsBox = new THREE.Box3().setFromObject(wingsFbx);
+    const wSize = new THREE.Vector3();
+    wingsBox.getSize(wSize);
+
+    /* Scale: wingspan is X=26.3, target ~4.0 game units wide */
+    const wScale = 4.0 / Math.max(wSize.x, 0.01);
+    wingsFbx.scale.setScalar(wScale);
+
+    /* Orientation: raw Y=feather length (up), need it along -Z (backward)
+       Rotate -90° around X to swing Y→Z */
+    wingsFbx.rotation.set(-Math.PI / 2, 0, 0);
+
+    /* Center the wings after scale+rotation */
+    wingsFbx.updateMatrixWorld(true);
+    const centeredBox = new THREE.Box3().setFromObject(wingsFbx);
+    const center = centeredBox.getCenter(new THREE.Vector3());
+    wingsFbx.position.sub(center);
+
+    /* Replace procedural glider contents */
+    if (G.glider) {
+      while (G.glider.children.length) {
+        G.glider.remove(G.glider.children[0]);
+      }
+      G.glider.add(wingsFbx);
+      /* Position on upper back — slightly behind player center */
+      G.glider.position.set(0, 2.4, -0.5);
+    }
+    console.log('✅ Wings model loaded');
+  } catch (e) {
+    console.warn('Wings FBX load failed, keeping procedural glider:', e);
+  }
 }
 
 export function buildPlayer(): void {
   G.player = new THREE.Group();
-  G.player.position.set(0, 5, 0);
+  G.player.position.set(0, 3, 0);
+  G.player.scale.setScalar(1.3);
   G.scene!.add(G.player);
 
   G.playerModel = new THREE.Group();
@@ -164,7 +246,7 @@ export function buildPlayer(): void {
   G.glider.add(new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.08, 0.5), am));
   G.glider.position.set(0, 2.02, -0.6);
   G.glider.visible = false;
-  G.player.add(G.glider);
+  G.playerModel.add(G.glider);
 
   /* Sword pivot */
   G.swordPivot = new THREE.Group();

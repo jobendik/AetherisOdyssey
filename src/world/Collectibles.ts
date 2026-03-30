@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import { G } from '../core/GameState';
-import { rwp, wH, clamp } from '../core/Helpers';
+import { rwp, wH, clamp, legacyLightIntensity } from '../core/Helpers';
 import { ui } from '../ui/UIRefs';
 import { spawnParts } from '../systems/Particles';
 import { SFX } from '../audio/Audio';
 import { gainXp } from '../systems/Progression';
+import { spawnDmg } from '../ui/DamageNumbers';
 
 export function createUpdraft(x: number, z: number, top: number): void {
   const by = wH(x, z);
@@ -51,7 +52,7 @@ export function populateCollectibles(count: number): void {
       }),
     );
     cr.position.set(pt.x, pt.y + el, pt.z);
-    cr.add(new THREE.PointLight(0x85f9ff, 0.8, 12));
+    cr.add(new THREE.PointLight(0x85f9ff, legacyLightIntensity(0.8), 12));
     G.scene!.add(cr);
     G.entities.collectibles.push({ mesh: cr, startY: pt.y + el, collected: false });
     if (el > 4.5) createUpdraft(pt.x, pt.z, pt.y + el + 2.5);
@@ -81,6 +82,152 @@ export function updateCollectibles(dt: number): void {
         G.questPhase = 2;
         ui.objectiveText.textContent = 'Return to Guide';
         ui.objectiveSubtext.textContent = 'Report back.';
+        SFX.questComplete();
+      }
+    }
+  }
+}
+
+/* ─── Aerial Collectibles: floating orbs high up requiring glider ─── */
+interface AerialOrb {
+  mesh: THREE.Mesh;
+  collected: boolean;
+  startY: number;
+}
+const aerialOrbs: AerialOrb[] = [];
+
+export function populateAerialOrbs(count: number): void {
+  for (let i = 0; i < count; i++) {
+    const pt = rwp(25, 100, 0);
+    const height = pt.y + 14 + Math.random() * 12;  /* well above ground */
+    /* Golden orb with glow */
+    const orb = new THREE.Mesh(
+      new THREE.SphereGeometry(0.7, 12, 8),
+      new THREE.MeshStandardMaterial({
+        color: 0xffd700,
+        emissive: 0xffaa00,
+        emissiveIntensity: 1.5,
+        flatShading: true,
+      }),
+    );
+    /* Outer ring */
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(1.1, 0.06, 8, 24),
+      new THREE.MeshBasicMaterial({ color: 0xffcc44, transparent: true, opacity: 0.5 }),
+    );
+    orb.add(ring);
+    orb.add(new THREE.PointLight(0xffdd55, legacyLightIntensity(1.2), 15));
+    orb.position.set(pt.x, height, pt.z);
+    G.scene!.add(orb);
+    aerialOrbs.push({ mesh: orb, collected: false, startY: height });
+    /* Add updraft nearby so gliding is possible */
+    createUpdraft(pt.x + (Math.random() - 0.5) * 6, pt.z + (Math.random() - 0.5) * 6, height + 3);
+  }
+}
+
+export function updateAerialOrbs(dt: number): void {
+  for (const o of aerialOrbs) {
+    if (o.collected) continue;
+    o.mesh.rotation.y += dt * 1.4;
+    o.mesh.rotation.x += dt * 0.5;
+    o.mesh.position.y = o.startY + Math.sin(G.worldTime * 1.8 + o.mesh.position.x * 0.3) * 0.6;
+    /* Ring expand/contract */
+    const ring = o.mesh.children[0] as THREE.Mesh;
+    if (ring) ring.rotation.z += dt * 2;
+    if (G.player!.position.distanceTo(o.mesh.position) < 3) {
+      o.collected = true;
+      o.mesh.visible = false;
+      spawnParts(o.mesh.position.clone(), '#ffdd44', 28, 22);
+      SFX.collect();
+      gainXp(40);
+      G.mora += 50;
+      G.burstEnergy = clamp(G.burstEnergy + 25, 0, 100);
+      spawnDmg(o.mesh.position.clone(), 50, '#ffd700', false, '+50 Mora');
+    }
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ORE MINING NODES
+   ═══════════════════════════════════════════════════════════ */
+interface OreNode {
+  mesh: THREE.Group;
+  hp: number;
+  mined: boolean;
+  pos: THREE.Vector3;
+}
+const oreNodes: OreNode[] = [];
+
+export function populateOreNodes(count: number): void {
+  for (let i = 0; i < count; i++) {
+    const pt = rwp(20, 100, 0);
+    const y = wH(pt.x, pt.z);
+    const group = new THREE.Group();
+
+    /* Crystal shards */
+    const colors = [0x55ccff, 0x77ddff, 0x44aadd];
+    for (let s = 0; s < 4; s++) {
+      const h = 0.8 + Math.random() * 1.2;
+      const shard = new THREE.Mesh(
+        new THREE.ConeGeometry(0.25 + Math.random() * 0.2, h, 5),
+        new THREE.MeshStandardMaterial({
+          color: colors[s % 3],
+          emissive: 0x2288aa,
+          emissiveIntensity: 0.6,
+          flatShading: true,
+        }),
+      );
+      shard.position.set(
+        (Math.random() - 0.5) * 0.8,
+        h / 2,
+        (Math.random() - 0.5) * 0.8,
+      );
+      shard.rotation.set(
+        (Math.random() - 0.5) * 0.3,
+        Math.random() * Math.PI * 2,
+        (Math.random() - 0.5) * 0.3,
+      );
+      group.add(shard);
+    }
+
+    /* Base rock */
+    const base = new THREE.Mesh(
+      new THREE.DodecahedronGeometry(0.5, 0),
+      new THREE.MeshStandardMaterial({ color: 0x555566, flatShading: true }),
+    );
+    base.position.y = 0.2;
+    group.add(base);
+
+    group.add(new THREE.PointLight(0x55ccff, legacyLightIntensity(0.5), 8));
+    group.position.set(pt.x, y, pt.z);
+    G.scene!.add(group);
+    oreNodes.push({ mesh: group, hp: 3, mined: false, pos: group.position.clone() });
+  }
+}
+
+export function hitOreNearby(pos: THREE.Vector3, radius: number): void {
+  for (const ore of oreNodes) {
+    if (ore.mined) continue;
+    const d = pos.distanceTo(ore.pos);
+    if (d < radius + 1.2) {
+      ore.hp--;
+      spawnParts(ore.pos.clone().add(new THREE.Vector3(0, 1, 0)), '#55ccff', 8, 6);
+      SFX.hit();
+      /* Shake crystals */
+      ore.mesh.children.forEach((c, i) => {
+        const orig = c.position.clone();
+        c.position.x += (Math.random() - 0.5) * 0.15;
+        c.position.z += (Math.random() - 0.5) * 0.15;
+        setTimeout(() => { c.position.copy(orig); }, 100);
+      });
+      if (ore.hp <= 0) {
+        ore.mined = true;
+        ore.mesh.visible = false;
+        spawnParts(ore.pos.clone().add(new THREE.Vector3(0, 0.8, 0)), '#77ddff', 20, 12);
+        SFX.collect();
+        G.mora += 30;
+        G.oreMaterials = (G.oreMaterials || 0) + 1;
+        spawnDmg(ore.pos.clone().add(new THREE.Vector3(0, 1.5, 0)), 30, '#55ccff', false, '+1 Ore');
       }
     }
   }

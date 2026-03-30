@@ -7,9 +7,32 @@ import { spawnDmg } from '../ui/DamageNumbers';
 import { tryReaction } from './Reactions';
 import { dmgEnemy, trigShake, Shake } from './DamageSystem';
 import { addCombo } from './Combo';
-import { calcStats } from '../systems/Inventory';
+import { calcStats, getW } from '../systems/Inventory';
+import { hitOreNearby } from '../world/Collectibles';
 import { updateHUD } from '../ui/HUD';
 import { triggerSlashTrail } from './SlashTrail';
+import { fireProjectile } from './Projectiles';
+import type { WeaponType } from '../types';
+
+/* ──── Weapon-type attack profiles ──── */
+interface AttackProfile { hits: number; speedMult: number; arcMult: number; rangeMult: number; kbMult: number; dmgMult: number; }
+const WEAPON_PROFILES: Record<WeaponType, AttackProfile> = {
+  sword:    { hits: 3, speedMult: 1.0,  arcMult: 1.0, rangeMult: 1.0,  kbMult: 1.0, dmgMult: 1.0 },
+  claymore: { hits: 2, speedMult: 0.6,  arcMult: 1.4, rangeMult: 1.15, kbMult: 1.8, dmgMult: 1.5 },
+  polearm:  { hits: 4, speedMult: 1.35, arcMult: 0.6, rangeMult: 1.3,  kbMult: 0.7, dmgMult: 0.8 },
+  bow:      { hits: 1, speedMult: 1.0,  arcMult: 0.3, rangeMult: 20,   kbMult: 0.5, dmgMult: 1.1 },
+  catalyst: { hits: 2, speedMult: 1.1,  arcMult: 2.0, rangeMult: 1.4,  kbMult: 0.8, dmgMult: 1.2 },
+};
+
+function getWeaponProfile(): AttackProfile {
+  const w = getW(G.inventory.equippedWeapon);
+  return WEAPON_PROFILES[w?.wtype ?? 'sword'];
+}
+
+function getWeaponType(): WeaponType {
+  const w = getW(G.inventory.equippedWeapon);
+  return w?.wtype ?? 'sword';
+}
 
 export function performAttack(): void {
   if (G.atkTimer > 0 || G.inDialogue || G.isGliding || G.isDashing) return;
@@ -24,13 +47,15 @@ export function performAttack(): void {
 
   const m = mem();
   const stats = calcStats();
-  G.atkCombo = (G.atkCombo % 3) + 1;
+  const wp = getWeaponProfile();
+  const wt = getWeaponType();
+  G.atkCombo = (G.atkCombo % wp.hits) + 1;
 
   /* Use actual animation clip duration so the full animation plays out */
   const atkName = `attack${G.atkCombo}`;
-  let clipDur = 0.35 / m.normalSpeed; // fallback for procedural
+  let clipDur = 0.35 / (m.normalSpeed * wp.speedMult); // fallback for procedural
   if (G.animActions && G.animActions[atkName]) {
-    clipDur = G.animActions[atkName].getClip().duration / m.normalSpeed;
+    clipDur = G.animActions[atkName].getClip().duration / (m.normalSpeed * wp.speedMult);
   }
   G.atkTimer = clipDur;
   if (!G.modelLoaded) {
@@ -45,8 +70,8 @@ export function performAttack(): void {
   SFX.barkAttack();
   triggerSlashTrail();
 
-  /* ──── Combo finisher (3rd hit): bigger VFX ──── */
-  const isFinisher = G.atkCombo === 3;
+  /* ──── Combo finisher (last hit): bigger VFX ──── */
+  const isFinisher = G.atkCombo === wp.hits;
   if (isFinisher) {
     Shake.heavy();
     spawnRing(
@@ -61,6 +86,19 @@ export function performAttack(): void {
     .applyAxisAngle(new THREE.Vector3(0, 1, 0), G.playerModel!.rotation.y)
     .normalize();
 
+  /* ──── Bow: fire a projectile instead of melee ──── */
+  if (wt === 'bow') {
+    const origin = G.player!.position.clone().add(new THREE.Vector3(0, 1.5, 0));
+    const vel = fwd.clone().multiplyScalar(45);
+    const dmg = stats.atk * wp.dmgMult * (isFinisher ? 1.5 : 1);
+    fireProjectile(origin, vel, dmg, m.accent);
+    if (isFinisher) updateHUD(true);
+    return;
+  }
+
+  const range = m.normalRange * wp.rangeMult;
+  const arc = m.normalArc * wp.arcMult;
+
   let hitAny = false;
   for (const s of G.entities.slimes) {
     if (s.dead || (s.frozenTimer > 0.5 && !s.isBoss)) continue;
@@ -70,9 +108,9 @@ export function performAttack(): void {
       s.mesh.position.z - G.player!.position.z,
     );
     const d = fl.length();
-    if (d < 0.001 || d > (s.isBoss ? 5.5 : m.normalRange)) continue;
+    if (d < 0.001 || d > (s.isBoss ? 5.5 : range)) continue;
     fl.normalize();
-    if (fwd.angleTo(fl) > m.normalArc) continue;
+    if (fwd.angleTo(fl) > arc) continue;
 
     if (s.shieldHp > 0) {
       s.shieldHp -= stats.atk;
@@ -106,7 +144,7 @@ export function performAttack(): void {
     }
 
     const crit = Math.random() < 0.2 + stats.critBonus;
-    let dmg = stats.atk * (crit ? 2 : 1) * G.comboMult;
+    let dmg = stats.atk * wp.dmgMult * (crit ? 2 : 1) * G.comboMult;
     const rxn = tryReaction(el, s);
     if (rxn) {
       dmg *= rxn.m * stats.elemDmg;
@@ -130,8 +168,8 @@ export function performAttack(): void {
     dmgEnemy(
       s,
       dmg,
-      s.isBoss ? 5 : (isFinisher ? 28 : 19),
-      s.isBoss ? 3 : (isFinisher ? 10 : 6),
+      s.isBoss ? 5 : (isFinisher ? 28 : 19) * wp.kbMult,
+      s.isBoss ? 3 : (isFinisher ? 10 : 6) * wp.kbMult,
       crit ? '#ffff44' : m.accent,
       null,
       crit,
@@ -150,6 +188,9 @@ export function performAttack(): void {
     G.hitstop = crit ? 0.06 : (isFinisher ? 0.08 : 0.03);
   }
   if (hitAny) updateHUD(true);
+
+  /* Hit ore nodes near attack position */
+  hitOreNearby(G.player!.position.clone().add(fwd.clone().multiplyScalar(range * 0.5)), range);
 }
 
 /* ──── Plunge landing: AoE damage burst on ground impact ──── */

@@ -2,6 +2,33 @@ import { G } from '../core/GameState';
 import { wH, objTarget } from '../core/Helpers';
 import { ui } from './UIRefs';
 
+/* ─── Custom Waypoint ─── */
+let customWaypoint: { x: number; z: number } | null = null;
+let minimapBound = false;
+
+function bindMinimapClick(): void {
+  if (minimapBound) return;
+  minimapBound = true;
+  const canvas = ui.minimapCanvas as unknown as HTMLCanvasElement;
+  canvas.style.cursor = 'crosshair';
+  canvas.addEventListener('click', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const sz = 200, c = 100, r = 100, rng = 48;
+    const dx = ((mx - c) / r) * rng;
+    const dz = ((my - c) / r) * rng;
+    /* Convert minimap offset to world position */
+    const wx = G.player!.position.x + dx;
+    const wz = G.player!.position.z + dz;
+    customWaypoint = { x: wx, z: wz };
+  });
+  canvas.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    customWaypoint = null;
+  });
+}
+
 export function updateMinimap(): void {
   const now = performance.now();
   if (now - G.lastMini < 70) return;
@@ -80,6 +107,26 @@ export function updateMinimap(): void {
     ctx.fill();
   }
 
+  /* Custom waypoint marker */
+  if (customWaypoint) {
+    const wdx = customWaypoint.x - G.player!.position.x;
+    const wdz = customWaypoint.z - G.player!.position.z;
+    if (Math.abs(wdx) < rng && Math.abs(wdz) < rng) {
+      const wpx = c + (wdx / rng) * r;
+      const wpz = c + (wdz / rng) * r;
+      /* Blue diamond marker */
+      ctx.fillStyle = '#44aaff';
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.5;
+      ctx.save();
+      ctx.translate(wpx, wpz);
+      ctx.rotate(Math.PI / 4);
+      ctx.fillRect(-4, -4, 8, 8);
+      ctx.strokeRect(-4, -4, 8, 8);
+      ctx.restore();
+    }
+  }
+
   // Player arrow
   ctx.save();
   ctx.translate(c, c);
@@ -94,4 +141,7 @@ export function updateMinimap(): void {
   ctx.fill();
   ctx.restore();
   ctx.restore();
+
+  /* Bind click handler (once) */
+  bindMinimapClick();
 }

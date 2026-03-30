@@ -36,6 +36,15 @@ export function updateHUD(force = false): void {
 
   ui.hpFill.style.width = clamp(G.health / G.maxHealth, 0, 1) * 100 + '%';
   ui.hpNumbers.textContent = Math.ceil(G.health) + '/' + G.maxHealth;
+
+  /* Low health vignette */
+  const hpRatio = G.health / G.maxHealth;
+  if (hpRatio < 0.25 && G.health > 0) {
+    ui.lowHealthVignette.classList.add('active');
+  } else {
+    ui.lowHealthVignette.classList.remove('active');
+  }
+
   ui.shieldFill.style.width =
     G.shield > 0 ? clamp(G.shield / G.maxShield, 0, 1) * 100 + '%' : '0%';
   ui.staminaMiniFill.style.width =
@@ -68,6 +77,18 @@ export function updateHUD(force = false): void {
     ui.bossPhaseLabel.textContent =
       ['', 'Phase 1', 'Phase 2 — Fury', 'Phase 3 — RAGE'][G.bossPhase] || '';
     ui.bossHpFill.style.width = (G.bossEntity.hp / G.bossEntity.maxHp) * 100 + '%';
+
+    /* Phase segment markers at 60% and 30% */
+    const hpOuter = ui.bossHpFill.parentElement;
+    if (hpOuter && !hpOuter.querySelector('.bossSegment')) {
+      for (const pct of [60, 30]) {
+        const seg = document.createElement('div');
+        seg.className = 'bossSegment';
+        seg.style.left = pct + '%';
+        hpOuter.style.position = 'relative';
+        hpOuter.appendChild(seg);
+      }
+    }
   } else {
     ui.bossBar.style.display = 'none';
     if (G.target && !G.target.dead) {
@@ -93,6 +114,12 @@ export function switchParty(i: number): void {
   applyVisuals();
   updateHUD(true);
   SFX.swap();
+
+  /* Switch flash VFX */
+  ui.switchFlash.style.background = `radial-gradient(circle at center, ${mem().accent}aa 0%, transparent 65%)`;
+  ui.switchFlash.classList.add('active');
+  setTimeout(() => ui.switchFlash.classList.remove('active'), 350);
+
   spawnRing(
     G.player!.position.clone().add(new THREE.Vector3(0, 1, 0)),
     mem().accent,

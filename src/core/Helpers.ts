@@ -25,6 +25,139 @@ export const normAng = (a: number): number => {
 export const rnd = (a: number, b: number): number =>
   a + Math.random() * (b - a);
 
+/* Three.js removed legacy light scaling, so older authored scenes need a boost. */
+export const LEGACY_LIGHT_INTENSITY_SCALE = Math.PI;
+
+export const legacyLightIntensity = (intensity: number): number =>
+  intensity * LEGACY_LIGHT_INTENSITY_SCALE;
+
+/* ──────── Cel-shaded material helpers ──────── */
+
+const celVertexShader = /* glsl */ `
+  varying vec3 vNormal;
+  varying vec3 vWorldPos;
+  void main() {
+    vec4 wp = modelMatrix * vec4(position, 1.0);
+    vWorldPos = wp.xyz;
+    vNormal = normalize(normalMatrix * normal);
+    gl_Position = projectionMatrix * viewMatrix * wp;
+  }
+`;
+
+const celFragmentShader = /* glsl */ `
+  uniform vec3 uColor;
+  uniform vec3 uColor2;
+  uniform float uMoss;
+  uniform vec3 uLightDir;
+
+  varying vec3 vNormal;
+  varying vec3 vWorldPos;
+
+  void main() {
+    float NdotL = dot(vNormal, normalize(uLightDir));
+
+    /* 3-step cel shading */
+    float shade;
+    if (NdotL > 0.4) shade = 1.0;
+    else if (NdotL > -0.1) shade = 0.78;
+    else shade = 0.58;
+
+    /* Base color with subtle noise variation */
+    float n = sin(vWorldPos.x * 2.3 + vWorldPos.y * 1.7) *
+              cos(vWorldPos.z * 1.9 + vWorldPos.y * 2.1) * 0.5 + 0.5;
+    vec3 col = mix(uColor, uColor2, n * 0.35);
+
+    /* Optional moss on upward-facing surfaces */
+    float up = dot(vNormal, vec3(0.0, 1.0, 0.0));
+    vec3 mossCol = vec3(0.32, 0.50, 0.22);
+    col = mix(col, mossCol, smoothstep(0.5, 0.9, up) * uMoss);
+
+    col *= shade;
+    gl_FragColor = vec4(col, 1.0);
+  }
+`;
+
+const celLitMats: THREE.ShaderMaterial[] = [];
+
+/** Create a cel-shaded material matching the game's stylized look */
+export function mkCelMat(
+  color: number,
+  color2?: number,
+  moss = 0,
+): THREE.ShaderMaterial {
+  const c1 = new THREE.Color(color);
+  const c2 = new THREE.Color(color2 ?? color);
+  const m = new THREE.ShaderMaterial({
+    vertexShader: celVertexShader,
+    fragmentShader: celFragmentShader,
+    uniforms: {
+      uColor: { value: c1 },
+      uColor2: { value: c2 },
+      uMoss: { value: moss },
+      uLightDir: { value: new THREE.Vector3(1, 1.5, 0.5).normalize() },
+    },
+  });
+  celLitMats.push(m);
+  return m;
+}
+
+/* ──────── Emissive cel material for glowing surfaces ──────── */
+
+const celEmissiveFragment = /* glsl */ `
+  uniform vec3 uColor;
+  uniform vec3 uEmissive;
+  uniform float uPulse;
+  uniform float uTime;
+  uniform vec3 uLightDir;
+
+  varying vec3 vNormal;
+  varying vec3 vWorldPos;
+
+  void main() {
+    float NdotL = dot(vNormal, normalize(uLightDir));
+    float shade = NdotL > 0.3 ? 1.0 : 0.8;
+
+    float pulse = 1.0 + sin(uTime * 2.0) * uPulse * 0.15;
+    vec3 col = uColor * shade + uEmissive * pulse;
+    gl_FragColor = vec4(col, 1.0);
+  }
+`;
+
+const celEmissiveTimeMats: THREE.ShaderMaterial[] = [];
+
+export function mkCelEmissiveMat(
+  color: number,
+  emissive: number,
+  pulse = 0,
+): THREE.ShaderMaterial {
+  const m = new THREE.ShaderMaterial({
+    vertexShader: celVertexShader,
+    fragmentShader: celEmissiveFragment,
+    uniforms: {
+      uColor: { value: new THREE.Color(color) },
+      uEmissive: { value: new THREE.Color(emissive) },
+      uPulse: { value: pulse },
+      uTime: { value: 0 },
+      uLightDir: { value: new THREE.Vector3(1, 1.5, 0.5).normalize() },
+    },
+  });
+  celLitMats.push(m);
+  if (pulse > 0) celEmissiveTimeMats.push(m);
+  return m;
+}
+
+export function updateCelLightDir(lightDir: THREE.Vector3): void {
+  for (const m of celLitMats) {
+    m.uniforms.uLightDir.value.copy(lightDir);
+  }
+}
+
+export function updateCelEmissiveMats(time: number): void {
+  for (const m of celEmissiveTimeMats) {
+    m.uniforms.uTime.value = time;
+  }
+}
+
 /* ──────── Mesh factory helpers ──────── */
 
 export function mkMesh(
@@ -47,7 +180,7 @@ export function mkLight(
   y: number,
   z: number,
 ): THREE.PointLight {
-  const l = new THREE.PointLight(color, intensity, dist);
+  const l = new THREE.PointLight(color, legacyLightIntensity(intensity), dist);
   l.position.set(x, y, z);
   return l;
 }
@@ -59,13 +192,21 @@ export function wH(x: number, z: number): number {
   const W = 140;
   const d = Math.sqrt(x * x + z * z);
   if (d > W) return -10;
+
+  /* Flatten terrain inside the spawn ruin (r=8.5) with a smooth blend zone */
+  const RUIN_R = 8.5;
+  const BLEND_R = 14;
+  let ruinFade = 1;
+  if (d < RUIN_R) ruinFade = 0;
+  else if (d < BLEND_R) ruinFade = (d - RUIN_R) / (BLEND_R - RUIN_R);
+
   const f = Math.min(1, d / 18);
   const h =
     Math.sin(x * 0.03) * 8 +
     Math.cos(z * 0.03) * 8 +
     Math.sin(x * 0.08 + z * 0.05) * 4 +
     Math.cos(x * 0.14 - z * 0.11) * 2;
-  return h * f * Math.max(0, 1 - (d - 100) / 40);
+  return h * f * Math.max(0, 1 - (d - 100) / 40) * ruinFade;
 }
 
 /** Random world position at valid terrain height */

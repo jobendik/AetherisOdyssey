@@ -12,4 +12,6 @@ export const ENEMY_TYPES: Record<EnemyArchetype, EnemyTypeStats> = {
   archer: { hp: 3, spd: 1.8, atkRange: 20, atkCd: 2.5, dmg: 12, xp: 14, mora: 20, aggro: 28, shieldHp: 0 },
   shield: { hp: 8, spd: 2.2, atkRange: 3,  atkCd: 2.2, dmg: 20, xp: 20, mora: 30, aggro: 22, shieldHp: 6 },
   wisp:   { hp: 2, spd: 3.5, atkRange: 8,  atkCd: 1.5, dmg: 10, xp: 12, mora: 18, aggro: 30, shieldHp: 0 },
+  mage:   { hp: 3, spd: 1.6, atkRange: 16, atkCd: 3.0, dmg: 22, xp: 22, mora: 28, aggro: 26, shieldHp: 0 },
+  bomber: { hp: 3, spd: 3.0, atkRange: 6,  atkCd: 2.8, dmg: 28, xp: 18, mora: 22, aggro: 24, shieldHp: 0 },
 };

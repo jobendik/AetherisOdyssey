@@ -1,8 +1,9 @@
 import { G, keys } from '../core/GameState';
-import { clamp } from '../core/Helpers';
+import { clamp, distXZ } from '../core/Helpers';
+import type { EnemyEntity } from '../types';
 import { ui } from '../ui/UIRefs';
-import { ensureAudio, scheduleAmbient } from '../audio/Audio';
-import { performAttack } from '../combat/Attack';
+import { ensureAudio, scheduleAmbient, SFX } from '../audio/Audio';
+import { performAttack, releaseCharge } from '../combat/Attack';
 import { useSkill } from '../combat/Skills';
 import { useBurst } from '../combat/Burst';
 import { toggleInv } from '../ui/InventoryUI';
@@ -14,18 +15,116 @@ import { openChest } from '../world/Chests';
 import { createBoss } from '../entities/Boss';
 import { respawn } from '../combat/DamageSystem';
 import { rwp } from '../core/Helpers';
+import { toggleWaypointUI } from '../world/Waypoints';
+import { toggleAchievementPanel } from '../systems/Achievements';
+import { trySideQuestInteract, canInteractSideQuest } from '../systems/SideQuests';
+import { toggleCharacterDetail, isCharDetailOpen } from '../ui/CharacterDetail';
+import { toggleMapScreen, isMapOpen, closeMapScreen } from '../ui/MapScreen';
+import { togglePerfHud } from '../ui/PerfHud';
+import { toggleTalentPanel, isTalentPanelOpen } from '../systems/Talents';
+import { openSettings, isSettingsOpen, closeSettings, loadSettings, settings } from '../ui/Settings';
+import { nearCampfire, openCookingUI, closeCookingUI, isCookingOpen } from '../systems/Cooking';
+import { nearViewpoint, activateViewpoint } from '../world/Landmarks';
+import { toggleConstellationPanel, isConstellationPanelOpen } from '../systems/Constellations';
+import { nearFishSpot, startFishing, isFishingOpen, closeFishingUI } from '../systems/Fishing';
+
+/* ─── Pause menu ─── */
+let pauseEl: HTMLElement | null = null;
+
+function togglePause(): void {
+  if (pauseEl) {
+    closePause();
+    return;
+  }
+  SFX.menuOpen();
+  G.isActive = false;
+  keys.w = keys.a = keys.s = keys.d = 0;
+  document.exitPointerLock();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'pauseOverlay';
+  overlay.innerHTML = `
+    <div class="pauseTitle">PAUSED</div>
+    <div class="pauseMenu">
+      <button class="pauseBtn" id="pauseResume">Resume</button>
+      <button class="pauseBtn" id="pauseSettings">Settings</button>
+      <button class="pauseBtn" id="pauseWaypoints">Waypoints</button>
+    </div>
+    <div class="pauseControls">
+      <div><span class="key">WASD</span> Move</div><div><span class="key">Mouse</span> Look</div>
+      <div><span class="key">Space</span> Jump / Glide</div><div><span class="key">Shift</span> Sprint</div>
+      <div><span class="key">LMB</span> Attack</div><div><span class="key">RMB</span> Dodge</div>
+      <div><span class="key">E</span> Skill</div><div><span class="key">Q</span> Burst</div>
+      <div><span class="key">F</span> Interact</div><div><span class="key">T</span> Lock-on</div>
+      <div><span class="key">Tab</span> Inventory</div><div><span class="key">M</span> Map</div>
+      <div><span class="key">1-4</span> Party</div><div><span class="key">C</span> Character</div>
+      <div><span class="key">N</span> Talents</div><div><span class="key">B</span> Constellations</div><div><span class="key">Esc</span> Pause</div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  pauseEl = overlay;
+
+  overlay.querySelector('#pauseResume')!.addEventListener('click', closePause);
+  overlay.querySelector('#pauseSettings')!.addEventListener('click', () => {
+    openSettings();
+  });
+  overlay.querySelector('#pauseWaypoints')!.addEventListener('click', () => {
+    closePause();
+    toggleWaypointUI();
+  });
+}
+
+function closePause(): void {
+  if (!pauseEl) return;
+  SFX.menuClose();
+  pauseEl.remove();
+  pauseEl = null;
+  if (!G.mobile) {
+    document.body.requestPointerLock();
+  } else {
+    G.isActive = true;
+  }
+}
 
 function canInteract(): string | false {
+  if (canInteractSideQuest()) return 'sidequest';
   if (G.npc && G.player!.position.distanceTo(G.npc.position) < 4.2) return 'npc';
   for (const ch of G.entities.chests) {
     if (!ch.opened && G.player!.position.distanceTo(ch.mesh.position) < 3.5) return 'chest';
   }
+  if (nearCampfire()) return 'campfire';
+  if (nearViewpoint()) return 'viewpoint';
+  if (nearFishSpot()) return 'fish';
   return false;
+}
+
+function toggleLockOn(): void {
+  if (G.lockOnTarget) {
+    G.lockOnTarget = null;
+    return;
+  }
+  /* Find nearest alive enemy within 30 units */
+  let best: EnemyEntity | null = null;
+  let bestD = 30;
+  for (const s of G.entities.slimes) {
+    if (s.dead) continue;
+    const d = distXZ(s.mesh.position, G.player!.position);
+    if (d < bestD) {
+      bestD = d;
+      best = s;
+    }
+  }
+  G.lockOnTarget = best;
 }
 
 function handleInteract(): void {
   const t = canInteract();
   if (!t) return;
+
+  if (t === 'sidequest') {
+    trySideQuestInteract();
+    return;
+  }
 
   if (t === 'chest') {
     for (const ch of G.entities.chests) {
@@ -34,6 +133,21 @@ function handleInteract(): void {
         return;
       }
     }
+    return;
+  }
+
+  if (t === 'campfire') {
+    openCookingUI();
+    return;
+  }
+
+  if (t === 'viewpoint') {
+    activateViewpoint();
+    return;
+  }
+
+  if (t === 'fish') {
+    startFishing();
     return;
   }
 
@@ -76,6 +190,7 @@ export function startGame(): void {
 export { canInteract };
 
 export function setupInput(): void {
+  loadSettings();
   ui.startBtn.addEventListener('click', startGame);
   ui.respawnBtn.addEventListener('click', () => {
     respawn();
@@ -92,7 +207,7 @@ export function setupInput(): void {
         ui.startScreen.style.display = 'none';
         ui.deathScreen.style.display = 'none';
         if (G.needsAmbient) scheduleAmbient();
-      } else if (G.hasStarted && G.health > 0 && !G.invOpen) {
+      } else if (G.hasStarted && G.health > 0 && !G.invOpen && !pauseEl) {
         G.isActive = false;
         keys.w = keys.a = keys.s = keys.d = 0;
         ui.startScreen.style.display = 'flex';
@@ -104,6 +219,19 @@ export function setupInput(): void {
 
   document.addEventListener('keydown', (e) => {
     if (!G.hasStarted) return;
+    if (e.code === 'Escape') {
+      e.preventDefault();
+      if (isCookingOpen()) { closeCookingUI(); return; }
+      if (isFishingOpen()) { closeFishingUI(); return; }
+      if (G.invOpen) { toggleInv(); return; }
+      if (isCharDetailOpen()) { toggleCharacterDetail(); return; }
+      if (isMapOpen()) { closeMapScreen(); return; }
+      if (isTalentPanelOpen()) { toggleTalentPanel(); return; }
+      if (isConstellationPanelOpen()) { toggleConstellationPanel(); return; }
+      if (isSettingsOpen()) { closeSettings(); return; }
+      togglePause();
+      return;
+    }
     if (e.code === 'Tab') {
       e.preventDefault();
       toggleInv();
@@ -116,8 +244,6 @@ export function setupInput(): void {
     if (e.code === 'KeyD') keys.d = 1;
     if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
       keys.shift = 1;
-      if (G.isActive && !G.inDialogue && G.dashCd <= 0 && G.stamina > 15 && !G.isDashing)
-        performDash();
     }
     if (e.code === 'Space') {
       keys.space = 1;
@@ -126,6 +252,13 @@ export function setupInput(): void {
     if (e.code === 'KeyF' && G.isActive) handleInteract();
     if (e.code === 'KeyE' && G.isActive && !G.inDialogue) useSkill();
     if (e.code === 'KeyQ' && G.isActive && !G.inDialogue) useBurst();
+    if (e.code === 'KeyT' && G.isActive && !G.inDialogue) toggleLockOn();
+    if (e.code === 'KeyM' && G.isActive && !G.inDialogue) toggleMapScreen();
+    if (e.code === 'KeyJ' && G.isActive && !G.inDialogue) toggleAchievementPanel();
+    if (e.code === 'KeyC' && G.isActive && !G.inDialogue) toggleCharacterDetail();
+    if (e.code === 'F3') { e.preventDefault(); togglePerfHud(); }
+    if (e.code === 'KeyN' && G.isActive && !G.inDialogue) toggleTalentPanel();
+    if (e.code === 'KeyB' && G.isActive && !G.inDialogue) toggleConstellationPanel();
     if (e.code === 'Digit1') switchParty(0);
     if (e.code === 'Digit2') switchParty(1);
     if (e.code === 'Digit3') switchParty(2);
@@ -143,9 +276,13 @@ export function setupInput(): void {
 
   document.addEventListener('mousemove', (e) => {
     if (!G.isActive || G.inDialogue || G.mobile || G.invOpen) return;
-    G.camYaw -= e.movementX * 0.0022;
-    G.camPitch += e.movementY * 0.002;
+    G.camYaw -= e.movementX * 0.0022 * settings.mouseSens;
+    G.camPitch += e.movementY * 0.002 * settings.mouseSens;
     G.camPitch = clamp(G.camPitch, -1.42, 1.45);
+  });
+
+  document.addEventListener('contextmenu', (e) => {
+    if (G.hasStarted) e.preventDefault();
   });
 
   document.addEventListener('mousedown', (e) => {
@@ -159,9 +296,30 @@ export function setupInput(): void {
       document.body.requestPointerLock();
       return;
     }
-    if (!G.isActive || e.button !== 0) return;
+    if (!G.isActive) return;
+    if (e.button === 2) {
+      if (!G.inDialogue && G.dashCd <= 0 && G.stamina > 15 && !G.isDashing)
+        performDash();
+      return;
+    }
+    if (e.button === 1) {
+      e.preventDefault();
+      toggleLockOn();
+      return;
+    }
+    if (e.button !== 0) return;
     if (G.inDialogue) advanceDialogue();
-    else performAttack();
+    else {
+      performAttack();
+      G.isCharging = true;
+      G.chargeTimer = 0;
+    }
+  });
+
+  document.addEventListener('mouseup', (e) => {
+    if (e.button === 0 && G.isCharging) {
+      releaseCharge();
+    }
   });
 
   // Touch

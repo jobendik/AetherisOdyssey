@@ -3,22 +3,19 @@ import { G } from '../core/GameState';
 import { lerp } from '../core/Helpers';
 
 const FADE_DUR = 0.2;
+let lastAtkCombo = 0;
 
 /** Smoothly transition to a named animation clip */
-function playAnim(name: string): void {
-  if (!G.mixer || !G.animActions || G.currentAnim === name) return;
+function playAnim(name: string, forceRestart = false): void {
+  if (!G.mixer || !G.animActions) return;
+  if (G.currentAnim === name && !forceRestart) return;
   const next = G.animActions[name];
   if (!next) return;
 
   const prev = G.currentAnim ? G.animActions[G.currentAnim] : null;
 
-  /* Reset one-shot clips before replaying */
-  if (name === 'jumpUp' || name === 'jumpDown' || name === 'land') {
-    next.reset();
-  }
-
   next.reset().fadeIn(FADE_DUR).play();
-  if (prev) prev.fadeOut(FADE_DUR);
+  if (prev && prev !== next) prev.fadeOut(FADE_DUR);
 
   G.currentAnim = name;
 }
@@ -31,10 +28,24 @@ export function updatePose(dt: number): void {
     /* Determine target animation based on state */
     const mv = G.moveVec.lengthSq() > 0.01 && G.isGrounded && !G.inDialogue;
 
-    if (G.isGliding) {
+    if (G.health <= 0 && G.animActions && G.animActions['death']) {
+      playAnim('death');
+    } else if (G.invulnTimer > 0.5 && G.animActions && G.animActions['hit']) {
+      playAnim('hit');
+    } else if (G.burstTimer > 0 && G.animActions && G.animActions['burst']) {
+      playAnim('burst');
+    } else if (G.skillTimer > 0 && G.animActions && G.animActions['skill']) {
+      playAnim('skill');
+    } else if (G.atkTimer > 0 && G.animActions && G.animActions[`attack${G.atkCombo || 1}`]) {
+      const comboChanged = G.atkCombo !== lastAtkCombo;
+      lastAtkCombo = G.atkCombo;
+      playAnim(`attack${G.atkCombo || 1}`, comboChanged);
+    } else if (G.isGliding) {
       playAnim('fly');
     } else if (G.isDashing) {
-      playAnim('run');
+      playAnim('dash');
+    } else if (G.isPlunging) {
+      playAnim('jumpDown');
     } else if (!G.isGrounded && G.pVel.y > 1) {
       playAnim('jumpUp');
     } else if (!G.isGrounded && G.pVel.y < -1) {
