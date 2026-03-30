@@ -14,6 +14,11 @@ import { triggerSlashTrail } from './SlashTrail';
 import { fireProjectile } from './Projectiles';
 import type { WeaponType } from '../types';
 
+const _atkFwd = new THREE.Vector3();
+const _atkUp = new THREE.Vector3(0, 1, 0);
+const _atkFL = new THREE.Vector3();
+const _atkOff = new THREE.Vector3();
+
 /* ──── Weapon-type attack profiles ──── */
 interface AttackProfile { hits: number; speedMult: number; arcMult: number; rangeMult: number; kbMult: number; dmgMult: number; }
 const WEAPON_PROFILES: Record<WeaponType, AttackProfile> = {
@@ -75,20 +80,20 @@ export function performAttack(): void {
   if (isFinisher) {
     Shake.heavy();
     spawnRing(
-      G.player!.position.clone().add(new THREE.Vector3(0, 0.3, 0)),
+      _atkOff.set(G.player!.position.x, G.player!.position.y + 0.3, G.player!.position.z).clone(),
       m.accent,
       3.5,
     );
   }
 
   const el = m.element;
-  const fwd = new THREE.Vector3(0, 0, -1)
-    .applyAxisAngle(new THREE.Vector3(0, 1, 0), G.playerModel!.rotation.y)
+  const fwd = _atkFwd.set(0, 0, -1)
+    .applyAxisAngle(_atkUp, G.playerModel!.rotation.y)
     .normalize();
 
   /* ──── Bow: fire a projectile instead of melee ──── */
   if (wt === 'bow') {
-    const origin = G.player!.position.clone().add(new THREE.Vector3(0, 1.5, 0));
+    const origin = _atkOff.set(G.player!.position.x, G.player!.position.y + 1.5, G.player!.position.z).clone();
     const vel = fwd.clone().multiplyScalar(45);
     const dmg = stats.atk * wp.dmgMult * (isFinisher ? 1.5 : 1);
     fireProjectile(origin, vel, dmg, m.accent);
@@ -102,20 +107,20 @@ export function performAttack(): void {
   let hitAny = false;
   for (const s of G.entities.slimes) {
     if (s.dead || (s.frozenTimer > 0.5 && !s.isBoss)) continue;
-    const fl = new THREE.Vector3(
+    _atkFL.set(
       s.mesh.position.x - G.player!.position.x,
       0,
       s.mesh.position.z - G.player!.position.z,
     );
-    const d = fl.length();
+    const d = _atkFL.length();
     if (d < 0.001 || d > (s.isBoss ? 5.5 : range)) continue;
-    fl.normalize();
-    if (fwd.angleTo(fl) > arc) continue;
+    _atkFL.multiplyScalar(1 / d);
+    if (fwd.angleTo(_atkFL) > arc) continue;
 
     if (s.shieldHp > 0) {
       s.shieldHp -= stats.atk;
       spawnDmg(
-        s.mesh.position.clone().add(new THREE.Vector3(0, 2, 0)),
+        _atkOff.set(s.mesh.position.x, s.mesh.position.y + 2, s.mesh.position.z).clone(),
         stats.atk,
         '#aaaaff',
         false,
@@ -124,7 +129,7 @@ export function performAttack(): void {
       if (s.shieldHp <= 0) {
         s.shieldHp = 0;
         spawnDmg(
-          s.mesh.position.clone().add(new THREE.Vector3(0, 2.5, 0)),
+          _atkOff.set(s.mesh.position.x, s.mesh.position.y + 2.5, s.mesh.position.z).clone(),
           0,
           '#fff',
           false,
@@ -149,7 +154,7 @@ export function performAttack(): void {
     if (rxn) {
       dmg *= rxn.m * stats.elemDmg;
       spawnDmg(
-        s.mesh.position.clone().add(new THREE.Vector3(0, 2.5, 0)),
+        _atkOff.set(s.mesh.position.x, s.mesh.position.y + 2.5, s.mesh.position.z).clone(),
         0,
         rxn.c,
         false,
@@ -159,9 +164,9 @@ export function performAttack(): void {
       Shake.medium();
       if (rxn.n === 'Frozen') s.frozenTimer = 2.5;
       if (rxn.n === 'Overloaded') {
-        const aw = s.mesh.position.clone().sub(G.player!.position).normalize();
-        s.vel.x = aw.x * 30;
-        s.vel.z = aw.z * 30;
+        _atkOff.copy(s.mesh.position).sub(G.player!.position).normalize();
+        s.vel.x = _atkOff.x * 30;
+        s.vel.z = _atkOff.z * 30;
         s.vel.y = 14;
       }
     }
@@ -204,10 +209,10 @@ export function plungeLand(): void {
 
   /* VFX */
   Shake.massive();
-  spawnRing(G.player!.position.clone().add(new THREE.Vector3(0, 0.3, 0)), m.accent, radius);
+  spawnRing(_atkOff.set(G.player!.position.x, G.player!.position.y + 0.3, G.player!.position.z).clone(), m.accent, radius);
   spawnParts(G.player!.position.clone(), m.accent, 30, 14);
   spawnElementalHit(
-    G.player!.position.clone().add(new THREE.Vector3(0, 0.5, 0)),
+    _atkOff.set(G.player!.position.x, G.player!.position.y + 0.5, G.player!.position.z).clone(),
     m.element,
   );
   SFX.hit();
@@ -253,35 +258,35 @@ export function releaseCharge(): void {
   Shake.heavy();
   SFX.skill();
   spawnRing(
-    G.player!.position.clone().add(new THREE.Vector3(0, 0.5, 0)),
+    _atkOff.set(G.player!.position.x, G.player!.position.y + 0.5, G.player!.position.z).clone(),
     m.accent,
     radius,
   );
   spawnElementalHit(
-    G.player!.position.clone().add(new THREE.Vector3(0, 1.2, 0)),
+    _atkOff.set(G.player!.position.x, G.player!.position.y + 1.2, G.player!.position.z).clone(),
     m.element,
   );
-  spawnParts(G.player!.position.clone().add(new THREE.Vector3(0, 1, 0)), m.accent, 24, 12);
+  spawnParts(_atkOff.set(G.player!.position.x, G.player!.position.y + 1, G.player!.position.z).clone(), m.accent, 24, 12);
   triggerSlashTrail();
   G.hitstop = 0.1;
 
   /* Forward direction */
-  const fwd = new THREE.Vector3(0, 0, -1)
-    .applyAxisAngle(new THREE.Vector3(0, 1, 0), G.playerModel!.rotation.y)
+  const fwd = _atkFwd.set(0, 0, -1)
+    .applyAxisAngle(_atkUp, G.playerModel!.rotation.y)
     .normalize();
 
   let hitAny = false;
   for (const s of G.entities.slimes) {
     if (s.dead) continue;
-    const fl = new THREE.Vector3(
+    _atkFL.set(
       s.mesh.position.x - G.player!.position.x,
       0,
       s.mesh.position.z - G.player!.position.z,
     );
-    const d = fl.length();
+    const d = _atkFL.length();
     if (d < 0.001 || d > radius) continue;
-    fl.normalize();
-    if (fwd.angleTo(fl) > Math.PI * 0.6) continue; // wider arc than normal
+    _atkFL.multiplyScalar(1 / d);
+    if (fwd.angleTo(_atkFL) > Math.PI * 0.6) continue; // wider arc than normal
 
     const crit = Math.random() < 0.35 + stats.critBonus;
     let finalDmg = dmg * (crit ? 2 : 1);

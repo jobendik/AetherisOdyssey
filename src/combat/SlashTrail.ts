@@ -108,8 +108,8 @@ export function updateSlashTrail(dt: number): void {
 
   G.slashTrail.visible = true;
 
-  const posArr = trailGeo.attributes.position.array as Float32Array;
-  const alphaArr = trailGeo.attributes.alpha.array as Float32Array;
+  const posArr = (trailGeo.attributes.position as THREE.BufferAttribute).array as Float32Array;
+  const alphaArr = (trailGeo.attributes.alpha as THREE.BufferAttribute).array as Float32Array;
   const ptCount = Math.floor(G.slashTrailPts.length / 2);
 
   for (let i = 0; i < TRAIL_LENGTH; i++) {

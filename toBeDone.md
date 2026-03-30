@@ -120,6 +120,7 @@
 - [x] **Character detail screen** — View stats, equipment, talents for each party member
 - [x] **Map screen** — Full-screen map with landmark labels and waypoints
 - [x] **Settings menu** — Graphics quality, audio volume sliders, keybind remapping
+- [x] **Lighting debug panel** — Live tuning controls for time-of-day, exposure, sun, ambient, hemisphere, and fog
 - [x] **Loading screen tips** — Gameplay tips during initial load
 
 ### Feedback & Polish

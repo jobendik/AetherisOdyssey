@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { G, mem } from '../core/GameState';
-import { mkMesh, wH, distXZ, lerp, rwp, legacyLightIntensity } from '../core/Helpers';
+import { mkMesh, mkPointLight, wH, distXZ, lerp, rwp } from '../core/Helpers';
 import { SFX } from '../audio/Audio';
 import { ui } from '../ui/UIRefs';
 import { takeDamage } from '../combat/DamageSystem';
@@ -469,7 +469,7 @@ export function spawnHypostasis(x: number, z: number): void {
   }
 
   /* Point light */
-  const light = new THREE.PointLight(0xcc88ff, legacyLightIntensity(2), 18);
+  const light = mkPointLight(0xcc88ff, 2, 18);
   light.position.y = 3;
   mesh.add(light);
 

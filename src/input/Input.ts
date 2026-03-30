@@ -15,21 +15,143 @@ import { openChest } from '../world/Chests';
 import { createBoss } from '../entities/Boss';
 import { respawn } from '../combat/DamageSystem';
 import { rwp } from '../core/Helpers';
-import { toggleWaypointUI } from '../world/Waypoints';
-import { toggleAchievementPanel } from '../systems/Achievements';
+import { closeWaypointUI, isWaypointUIOpen, toggleWaypointUI } from '../world/Waypoints';
 import { trySideQuestInteract, canInteractSideQuest } from '../systems/SideQuests';
-import { toggleCharacterDetail, isCharDetailOpen } from '../ui/CharacterDetail';
-import { toggleMapScreen, isMapOpen, closeMapScreen } from '../ui/MapScreen';
 import { togglePerfHud } from '../ui/PerfHud';
-import { toggleTalentPanel, isTalentPanelOpen } from '../systems/Talents';
 import { openSettings, isSettingsOpen, closeSettings, loadSettings, settings } from '../ui/Settings';
 import { nearCampfire, openCookingUI, closeCookingUI, isCookingOpen } from '../systems/Cooking';
 import { nearViewpoint, activateViewpoint } from '../world/Landmarks';
-import { toggleConstellationPanel, isConstellationPanelOpen } from '../systems/Constellations';
 import { nearFishSpot, startFishing, isFishingOpen, closeFishingUI } from '../systems/Fishing';
+
+type AchievementPanelModule = typeof import('../ui/AchievementPanel');
+type CharacterDetailModule = typeof import('../ui/CharacterDetail');
+type MapScreenModule = typeof import('../ui/MapScreen');
+type LightingDebugModule = typeof import('../ui/LightingDebug');
+type TalentPanelModule = typeof import('../ui/TalentPanel');
+type ConstellationPanelModule = typeof import('../ui/ConstellationPanel');
+
+let achievementPanelModule: AchievementPanelModule | null = null;
+let characterDetailModule: CharacterDetailModule | null = null;
+let mapScreenModule: MapScreenModule | null = null;
+let lightingDebugModule: LightingDebugModule | null = null;
+let talentPanelModule: TalentPanelModule | null = null;
+let constellationPanelModule: ConstellationPanelModule | null = null;
+
+let achievementPanelModulePromise: Promise<AchievementPanelModule> | null = null;
+let characterDetailModulePromise: Promise<CharacterDetailModule> | null = null;
+let mapScreenModulePromise: Promise<MapScreenModule> | null = null;
+let lightingDebugModulePromise: Promise<LightingDebugModule> | null = null;
+let talentPanelModulePromise: Promise<TalentPanelModule> | null = null;
+let constellationPanelModulePromise: Promise<ConstellationPanelModule> | null = null;
+
+function loadAchievementPanelModule(): Promise<AchievementPanelModule> {
+  if (achievementPanelModule) return Promise.resolve(achievementPanelModule);
+  if (!achievementPanelModulePromise) {
+    achievementPanelModulePromise = import('../ui/AchievementPanel').then((mod) => {
+      achievementPanelModule = mod;
+      return mod;
+    });
+  }
+  return achievementPanelModulePromise;
+}
+
+function loadCharacterDetailModule(): Promise<CharacterDetailModule> {
+  if (characterDetailModule) return Promise.resolve(characterDetailModule);
+  if (!characterDetailModulePromise) {
+    characterDetailModulePromise = import('../ui/CharacterDetail').then((mod) => {
+      characterDetailModule = mod;
+      return mod;
+    });
+  }
+  return characterDetailModulePromise;
+}
+
+function loadMapScreenModule(): Promise<MapScreenModule> {
+  if (mapScreenModule) return Promise.resolve(mapScreenModule);
+  if (!mapScreenModulePromise) {
+    mapScreenModulePromise = import('../ui/MapScreen').then((mod) => {
+      mapScreenModule = mod;
+      return mod;
+    });
+  }
+  return mapScreenModulePromise;
+}
+
+function loadLightingDebugModule(): Promise<LightingDebugModule> {
+  if (lightingDebugModule) return Promise.resolve(lightingDebugModule);
+  if (!lightingDebugModulePromise) {
+    lightingDebugModulePromise = import('../ui/LightingDebug').then((mod) => {
+      lightingDebugModule = mod;
+      return mod;
+    });
+  }
+  return lightingDebugModulePromise;
+}
+
+function loadTalentPanelModule(): Promise<TalentPanelModule> {
+  if (talentPanelModule) return Promise.resolve(talentPanelModule);
+  if (!talentPanelModulePromise) {
+    talentPanelModulePromise = import('../ui/TalentPanel').then((mod) => {
+      talentPanelModule = mod;
+      return mod;
+    });
+  }
+  return talentPanelModulePromise;
+}
+
+function loadConstellationPanelModule(): Promise<ConstellationPanelModule> {
+  if (constellationPanelModule) return Promise.resolve(constellationPanelModule);
+  if (!constellationPanelModulePromise) {
+    constellationPanelModulePromise = import('../ui/ConstellationPanel').then((mod) => {
+      constellationPanelModule = mod;
+      return mod;
+    });
+  }
+  return constellationPanelModulePromise;
+}
+
+function isLightingDebugOpenLoaded(): boolean {
+  return lightingDebugModule?.isLightingDebugOpen() ?? false;
+}
+
+function isCharDetailOpenLoaded(): boolean {
+  return characterDetailModule?.isCharDetailOpen() ?? false;
+}
+
+function isMapOpenLoaded(): boolean {
+  return mapScreenModule?.isMapOpen() ?? false;
+}
+
+function isTalentPanelOpenLoaded(): boolean {
+  return talentPanelModule?.isTalentPanelOpen() ?? false;
+}
+
+function isConstellationPanelOpenLoaded(): boolean {
+  return constellationPanelModule?.isConstellationPanelOpen() ?? false;
+}
 
 /* ─── Pause menu ─── */
 let pauseEl: HTMLElement | null = null;
+
+function tryRequestPointerLock(): void {
+  if (G.mobile || document.pointerLockElement === document.body) return;
+  try {
+    const maybePromise = document.body.requestPointerLock();
+    if (maybePromise && typeof (maybePromise as Promise<void>).catch === 'function') {
+      void (maybePromise as Promise<void>).catch(() => {
+        // Starting the game should not depend on pointer lock succeeding.
+      });
+    }
+  } catch {
+    // Some browsers throw synchronously; gameplay can still proceed without lock.
+  }
+}
+
+function resumeGameplay(): void {
+  G.isActive = true;
+  ui.startScreen.style.display = 'none';
+  ui.deathScreen.style.display = 'none';
+}
 
 function togglePause(): void {
   if (pauseEl) {
@@ -80,9 +202,10 @@ function closePause(): void {
   pauseEl.remove();
   pauseEl = null;
   if (!G.mobile) {
-    document.body.requestPointerLock();
+    resumeGameplay();
+    tryRequestPointerLock();
   } else {
-    G.isActive = true;
+    resumeGameplay();
   }
 }
 
@@ -175,16 +298,12 @@ function handleInteract(): void {
 }
 
 export function startGame(): void {
+  if (!G.bootReady) return;
   ensureAudio();
   G.hasStarted = true;
-  if (G.mobile) {
-    G.isActive = true;
-    ui.startScreen.style.display = 'none';
-    scheduleAmbient();
-  } else {
-    document.body.requestPointerLock();
-    scheduleAmbient();
-  }
+  resumeGameplay();
+  scheduleAmbient();
+  if (!G.mobile) tryRequestPointerLock();
 }
 
 export { canInteract };
@@ -203,11 +322,9 @@ export function setupInput(): void {
       if (G.mobile) return;
       const lk = document.pointerLockElement === document.body;
       if (lk) {
-        G.isActive = true;
-        ui.startScreen.style.display = 'none';
-        ui.deathScreen.style.display = 'none';
+        resumeGameplay();
         if (G.needsAmbient) scheduleAmbient();
-      } else if (G.hasStarted && G.health > 0 && !G.invOpen && !pauseEl) {
+      } else if (G.hasStarted && G.health > 0 && !G.invOpen && !pauseEl && !isLightingDebugOpenLoaded() && !isWaypointUIOpen()) {
         G.isActive = false;
         keys.w = keys.a = keys.s = keys.d = 0;
         ui.startScreen.style.display = 'flex';
@@ -219,15 +336,22 @@ export function setupInput(): void {
 
   document.addEventListener('keydown', (e) => {
     if (!G.hasStarted) return;
+    if (e.code === 'F4') {
+      e.preventDefault();
+      void loadLightingDebugModule().then((mod) => mod.toggleLightingDebug());
+      return;
+    }
     if (e.code === 'Escape') {
       e.preventDefault();
+      if (isLightingDebugOpenLoaded()) { lightingDebugModule!.closeLightingDebug(); return; }
+      if (isWaypointUIOpen()) { closeWaypointUI(); return; }
       if (isCookingOpen()) { closeCookingUI(); return; }
       if (isFishingOpen()) { closeFishingUI(); return; }
       if (G.invOpen) { toggleInv(); return; }
-      if (isCharDetailOpen()) { toggleCharacterDetail(); return; }
-      if (isMapOpen()) { closeMapScreen(); return; }
-      if (isTalentPanelOpen()) { toggleTalentPanel(); return; }
-      if (isConstellationPanelOpen()) { toggleConstellationPanel(); return; }
+      if (isCharDetailOpenLoaded()) { characterDetailModule!.toggleCharacterDetail(); return; }
+      if (isMapOpenLoaded()) { mapScreenModule!.closeMapScreen(); return; }
+      if (isTalentPanelOpenLoaded()) { talentPanelModule!.toggleTalentPanel(); return; }
+      if (isConstellationPanelOpenLoaded()) { constellationPanelModule!.toggleConstellationPanel(); return; }
       if (isSettingsOpen()) { closeSettings(); return; }
       togglePause();
       return;
@@ -237,6 +361,8 @@ export function setupInput(): void {
       toggleInv();
       return;
     }
+    if (isLightingDebugOpenLoaded()) return;
+    if (isWaypointUIOpen()) return;
     if (G.invOpen) return;
     if (e.code === 'KeyW') keys.w = 1;
     if (e.code === 'KeyA') keys.a = 1;
@@ -253,12 +379,25 @@ export function setupInput(): void {
     if (e.code === 'KeyE' && G.isActive && !G.inDialogue) useSkill();
     if (e.code === 'KeyQ' && G.isActive && !G.inDialogue) useBurst();
     if (e.code === 'KeyT' && G.isActive && !G.inDialogue) toggleLockOn();
-    if (e.code === 'KeyM' && G.isActive && !G.inDialogue) toggleMapScreen();
-    if (e.code === 'KeyJ' && G.isActive && !G.inDialogue) toggleAchievementPanel();
-    if (e.code === 'KeyC' && G.isActive && !G.inDialogue) toggleCharacterDetail();
-    if (e.code === 'F3') { e.preventDefault(); togglePerfHud(); }
-    if (e.code === 'KeyN' && G.isActive && !G.inDialogue) toggleTalentPanel();
-    if (e.code === 'KeyB' && G.isActive && !G.inDialogue) toggleConstellationPanel();
+    if (e.code === 'KeyM' && G.isActive && !G.inDialogue) {
+      void loadMapScreenModule().then((mod) => mod.toggleMapScreen());
+    }
+    if (e.code === 'KeyJ' && G.isActive && !G.inDialogue) {
+      void loadAchievementPanelModule().then((mod) => mod.toggleAchievementPanel());
+    }
+    if (e.code === 'KeyC' && G.isActive && !G.inDialogue) {
+      void loadCharacterDetailModule().then((mod) => mod.toggleCharacterDetail());
+    }
+    if (e.code === 'F3') {
+      e.preventDefault();
+      togglePerfHud();
+    }
+    if (e.code === 'KeyN' && G.isActive && !G.inDialogue) {
+      void loadTalentPanelModule().then((mod) => mod.toggleTalentPanel());
+    }
+    if (e.code === 'KeyB' && G.isActive && !G.inDialogue) {
+      void loadConstellationPanelModule().then((mod) => mod.toggleConstellationPanel());
+    }
     if (e.code === 'Digit1') switchParty(0);
     if (e.code === 'Digit2') switchParty(1);
     if (e.code === 'Digit3') switchParty(2);
@@ -286,14 +425,15 @@ export function setupInput(): void {
   });
 
   document.addEventListener('mousedown', (e) => {
-    if (!G.hasStarted || G.invOpen) return;
+    if (!G.hasStarted || G.invOpen || isLightingDebugOpenLoaded() || isWaypointUIOpen()) return;
     if (
       !G.mobile &&
       !G.isActive &&
       document.pointerLockElement !== document.body &&
       G.health > 0
     ) {
-      document.body.requestPointerLock();
+      resumeGameplay();
+      tryRequestPointerLock();
       return;
     }
     if (!G.isActive) return;

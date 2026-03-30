@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import { G, mem } from '../core/GameState';
-import { mkMesh, wH, rwp, distXZ, lerp, legacyLightIntensity } from '../core/Helpers';
+import { mkMesh, mkPointLight, wH, rwp, distXZ, lerp } from '../core/Helpers';
 import { SLIME_TYPES, ENEMY_TYPES } from '../data/EnemyData';
 import type { EnemyEntity, EnemyArchetype } from '../types';
 import { SFX } from '../audio/Audio';
 import { takeDamage } from '../combat/DamageSystem';
 import { shootArrow } from '../combat/Projectiles';
+import { spawnParts } from '../systems/Particles';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 
@@ -79,75 +80,82 @@ interface EnemyFBXData {
 }
 
 export const ENEMY_MODELS: Record<string, EnemyFBXData> = {};
+let enemyModelLoadPromise: Promise<void> | null = null;
 
 export async function loadEnemyModels(): Promise<void> {
+  if (enemyModelLoadPromise) return enemyModelLoadPromise;
+
   const loader = new FBXLoader();
-  try {
-    const [mutant, mutIdle, mutWalk, mutAtk, mutDeath] = await Promise.all([
-      loader.loadAsync('/models/enemies/mutant/Mutant.fbx'),
-      loader.loadAsync('/models/enemies/mutant/Breathing Idle.fbx'),
-      loader.loadAsync('/models/enemies/mutant/Walking (1).fbx'),
-      loader.loadAsync('/models/enemies/mutant/Zombie Attack.fbx'),
-      loader.loadAsync('/models/enemies/mutant/Death.fbx'),
-    ]);
-    mutant.scale.setScalar(0.035);
-    mutant.traverse((c) => { if ((c as THREE.Mesh).isMesh) { c.castShadow = true; c.receiveShadow = true; } });
-    ENEMY_MODELS['slime'] = {
-      mesh: mutant,
-      clips: {
-        idle: mutIdle.animations[0],
-        walk: mutWalk.animations[0],
-        attack: mutAtk.animations[0],
-        death: mutDeath.animations[0],
-      }
-    };
+  enemyModelLoadPromise = (async () => {
+    try {
+      const [mutant, mutIdle, mutWalk, mutAtk, mutDeath] = await Promise.all([
+        loader.loadAsync('/models/enemies/mutant/Mutant.fbx'),
+        loader.loadAsync('/models/enemies/mutant/Breathing Idle.fbx'),
+        loader.loadAsync('/models/enemies/mutant/Walking (1).fbx'),
+        loader.loadAsync('/models/enemies/mutant/Zombie Attack.fbx'),
+        loader.loadAsync('/models/enemies/mutant/Death.fbx'),
+      ]);
+      mutant.scale.setScalar(0.035);
+      mutant.traverse((child) => { if ((child as THREE.Mesh).isMesh) { child.castShadow = true; child.receiveShadow = true; } });
+      ENEMY_MODELS['slime'] = {
+        mesh: mutant,
+        clips: {
+          idle: mutIdle.animations[0],
+          walk: mutWalk.animations[0],
+          attack: mutAtk.animations[0],
+          death: mutDeath.animations[0],
+        }
+      };
 
-    const [warrok, warIdle, warWalk, warAtk, warHit, warDeath] = await Promise.all([
-      loader.loadAsync('/models/enemies/humanoid/Warrok W Kurniawan.fbx'),
-      loader.loadAsync('/models/enemies/humanoid/Idle (1).fbx'),
-      loader.loadAsync('/models/enemies/humanoid/Walking (2).fbx'),
-      loader.loadAsync('/models/enemies/humanoid/Zombie Attack (1).fbx'),
-      loader.loadAsync('/models/enemies/humanoid/Stomach Hit.fbx'),
-      loader.loadAsync('/models/enemies/humanoid/Sword And Shield Death.fbx'),
-    ]);
-    warrok.scale.setScalar(0.028);
-    warrok.traverse((c) => { if ((c as THREE.Mesh).isMesh) { c.castShadow = true; c.receiveShadow = true; } });
-    const humanData = {
-      mesh: warrok,
-      clips: {
-        idle: warIdle.animations[0],
-        walk: warWalk.animations[0],
-        attack: warAtk.animations[0],
-        hit: warHit.animations[0],
-        death: warDeath.animations[0],
-      }
-    };
-    ENEMY_MODELS['archer'] = humanData;
-    ENEMY_MODELS['shield'] = humanData;
-    ENEMY_MODELS['mage'] = humanData;
-    ENEMY_MODELS['bomber'] = humanData;
+      const [warrok, warIdle, warWalk, warAtk, warHit, warDeath] = await Promise.all([
+        loader.loadAsync('/models/enemies/humanoid/Warrok W Kurniawan.fbx'),
+        loader.loadAsync('/models/enemies/humanoid/Idle (1).fbx'),
+        loader.loadAsync('/models/enemies/humanoid/Walking (2).fbx'),
+        loader.loadAsync('/models/enemies/humanoid/Zombie Attack (1).fbx'),
+        loader.loadAsync('/models/enemies/humanoid/Stomach Hit.fbx'),
+        loader.loadAsync('/models/enemies/humanoid/Sword And Shield Death.fbx'),
+      ]);
+      warrok.scale.setScalar(0.028);
+      warrok.traverse((child) => { if ((child as THREE.Mesh).isMesh) { child.castShadow = true; child.receiveShadow = true; } });
+      const humanData = {
+        mesh: warrok,
+        clips: {
+          idle: warIdle.animations[0],
+          walk: warWalk.animations[0],
+          attack: warAtk.animations[0],
+          hit: warHit.animations[0],
+          death: warDeath.animations[0],
+        }
+      };
+      ENEMY_MODELS['archer'] = humanData;
+      ENEMY_MODELS['shield'] = humanData;
+      ENEMY_MODELS['mage'] = humanData;
+      ENEMY_MODELS['bomber'] = humanData;
 
-    const [vamp, vampIdle, vampFloat, vampDie] = await Promise.all([
-      loader.loadAsync('/models/enemies/wisp/Vampire A Lusth.fbx'),
-      loader.loadAsync('/models/enemies/wisp/Falling Idle.fbx'),
-      loader.loadAsync('/models/enemies/wisp/Floating.fbx'),
-      loader.loadAsync('/models/enemies/wisp/Dying.fbx'),
-    ]);
-    vamp.scale.setScalar(0.028);
-    vamp.traverse((c) => { if ((c as THREE.Mesh).isMesh) { c.castShadow = true; c.receiveShadow = true; } });
-    ENEMY_MODELS['wisp'] = {
-      mesh: vamp,
-      clips: {
-        idle: vampIdle.animations[0],
-        walk: vampFloat.animations[0],
-        attack: vampIdle.animations[0],
-        death: vampDie.animations[0],
-      }
-    };
-    console.log('Enemy models loaded');
-  } catch(e) {
-    console.error('Failed to load enemy FBX:', e);
-  }
+      const [vamp, vampIdle, vampFloat, vampDie] = await Promise.all([
+        loader.loadAsync('/models/enemies/wisp/Vampire A Lusth.fbx'),
+        loader.loadAsync('/models/enemies/wisp/Falling Idle.fbx'),
+        loader.loadAsync('/models/enemies/wisp/Floating.fbx'),
+        loader.loadAsync('/models/enemies/wisp/Dying.fbx'),
+      ]);
+      vamp.scale.setScalar(0.028);
+      vamp.traverse((child) => { if ((child as THREE.Mesh).isMesh) { child.castShadow = true; child.receiveShadow = true; } });
+      ENEMY_MODELS['wisp'] = {
+        mesh: vamp,
+        clips: {
+          idle: vampIdle.animations[0],
+          walk: vampFloat.animations[0],
+          attack: vampIdle.animations[0],
+          death: vampDie.animations[0],
+        }
+      };
+      console.log('Enemy models loaded');
+    } catch(e) {
+      console.error('Failed to load enemy FBX:', e);
+    }
+  })();
+
+  return enemyModelLoadPromise;
 }
 
 export function createEnemy(
@@ -276,7 +284,7 @@ export function createEnemy(
     aura.name = 'eliteAura';
     mesh.add(aura);
     /* Add point light */
-    const glow = new THREE.PointLight(st.color, legacyLightIntensity(0.8), 6);
+    const glow = mkPointLight(st.color, 0.8, 6);
     glow.position.y = 1.5;
     glow.name = 'eliteGlow';
     mesh.add(glow);
@@ -308,28 +316,47 @@ export function isNight(): boolean {
   return G.dayTime > 0.35 && G.dayTime < 0.85;
 }
 
+/* Reusable temp vectors to eliminate per-frame allocations */
+const _enemyTP = new THREE.Vector3();
+const _enemyFL = new THREE.Vector3();
+const _enemyPrevPos = new THREE.Vector3();
+
+/* Reusable arrays for group tactics — avoids GC pressure */
+const _engaged: EnemyEntity[] = [];
+const _meleeEngaged: EnemyEntity[] = [];
+const _rangedEngaged: EnemyEntity[] = [];
+
+/* Cached geometries for VFX to avoid per-use creation */
+const _mageBurstGeo = new THREE.SphereGeometry(3.5, 12, 8);
+const _bomberExplodeGeo = new THREE.SphereGeometry(4, 12, 8);
+
 export function updateEnemies(dt: number): void {
   const nightMult = isNight() ? 1.4 : 1;
 
   /* ── Group tactics: compute engaged enemies and assign surround angles ── */
-  const engaged: EnemyEntity[] = [];
+  _engaged.length = 0;
+  _meleeEngaged.length = 0;
+  _rangedEngaged.length = 0;
   for (const s of G.entities.slimes) {
     if (s.isBoss || s.dead) continue;
     const d = distXZ(s.mesh.position, G.player!.position);
-    if (d < ENEMY_TYPES[s.archetype].aggro) engaged.push(s);
+    if (d < ENEMY_TYPES[s.archetype].aggro) _engaged.push(s);
   }
-  const meleeEngaged = engaged.filter(e => e.archetype === 'slime' || e.archetype === 'shield' || e.archetype === 'bomber');
-  const rangedEngaged = engaged.filter(e => e.archetype === 'archer' || e.archetype === 'wisp' || e.archetype === 'mage');
+  for (const e of _engaged) {
+    const a = e.archetype;
+    if (a === 'slime' || a === 'shield' || a === 'bomber') _meleeEngaged.push(e);
+    else _rangedEngaged.push(e);
+  }
   /* Assign angular offsets so melee enemies surround the player */
   const spreadMap = new Map<EnemyEntity, number>();
-  if (meleeEngaged.length > 1) {
-    const step = (Math.PI * 2) / meleeEngaged.length;
-    meleeEngaged.forEach((e, i) => spreadMap.set(e, step * i));
+  if (_meleeEngaged.length > 1) {
+    const step = (Math.PI * 2) / _meleeEngaged.length;
+    _meleeEngaged.forEach((e, i) => spreadMap.set(e, step * i));
   }
   /* Ranged enemies get flanking angles (offset from player-facing) */
-  if (rangedEngaged.length > 1) {
-    const step = Math.PI / (rangedEngaged.length + 1);
-    rangedEngaged.forEach((e, i) => spreadMap.set(e, Math.PI * 0.5 + step * (i + 1)));
+  if (_rangedEngaged.length > 1) {
+    const step = Math.PI / (_rangedEngaged.length + 1);
+    _rangedEngaged.forEach((e, i) => spreadMap.set(e, Math.PI * 0.5 + step * (i + 1)));
   }
   /* Stagger attacks: only allow 1-2 enemies to attack per frame window */
   let atkSlots = 2;
@@ -345,7 +372,7 @@ export function updateEnemies(dt: number): void {
     s.attackCooldown = Math.max(0, s.attackCooldown - dt);
     s.hurtTimer = Math.max(0, s.hurtTimer - dt);
 
-    const prevPos = s.mesh.position.clone();
+    const prevPos = _enemyPrevPos.copy(s.mesh.position);
 
     // Frozen
     if (s.frozenTimer > 0) {
@@ -357,11 +384,14 @@ export function updateEnemies(dt: number): void {
 
     const et = ENEMY_TYPES[s.archetype];
 
-    const tp = G.player!.position.clone().sub(s.mesh.position);
-    const d = tp.length();
-    const fl = new THREE.Vector3(tp.x, 0, tp.z);
-    const fd = fl.length();
-    if (fd > 0.001) fl.normalize();
+    _enemyTP.copy(G.player!.position).sub(s.mesh.position);
+    const d = _enemyTP.length();
+    _enemyFL.set(_enemyTP.x, 0, _enemyTP.z);
+    const fd = _enemyFL.length();
+    if (fd > 0.001) { _enemyFL.x /= fd; _enemyFL.z /= fd; }
+
+    const fl = _enemyFL;
+    const tp = _enemyTP;
 
     if (d < et.aggro) {
       G.combatTimer = 10;
@@ -516,16 +546,8 @@ export function updateEnemies(dt: number): void {
           const bz = s.mesh.position.z + Math.cos(escAng) * blinkDist;
           const bGnd = wH(bx, bz);
           if (bGnd > -1) {
-            /* Blink particles at old position */
-            for (let i = 0; i < 5; i++) {
-              const pp = new THREE.Mesh(
-                new THREE.SphereGeometry(0.15, 4, 4),
-                new THREE.MeshBasicMaterial({ color: 0x9966ff, transparent: true, opacity: 0.8 }),
-              );
-              pp.position.copy(s.mesh.position).add(new THREE.Vector3((Math.random() - 0.5) * 2, Math.random() * 2, (Math.random() - 0.5) * 2));
-              G.scene!.add(pp);
-              setTimeout(() => G.scene!.remove(pp), 300);
-            }
+            /* Blink particles at old position — use pooled particles */
+            spawnParts(s.mesh.position.clone(), '#9966ff', 5, 4);
             s.mesh.position.set(bx, bGnd, bz);
           }
         } else if (fd < 12) {
@@ -548,7 +570,7 @@ export function updateEnemies(dt: number): void {
             }
             /* Visual burst */
             const burst = new THREE.Mesh(
-              new THREE.SphereGeometry(3.5, 12, 8),
+              _mageBurstGeo,
               new THREE.MeshBasicMaterial({ color: 0x9966ff, transparent: true, opacity: 0.4, depthWrite: false }),
             );
             burst.position.copy(targetPos);
@@ -582,7 +604,7 @@ export function updateEnemies(dt: number): void {
         }
         /* Fuse animation: flash faster as closer */
         const fuse = s.mesh.children[1] as THREE.Mesh | undefined;
-        if (fuse) {
+        if (fuse && (fuse as THREE.Mesh).isMesh && (fuse.material as THREE.MeshStandardMaterial).emissive) {
           const flashRate = Math.max(2, 10 - fd);
           (fuse.material as THREE.MeshStandardMaterial).emissive.setHex(
             Math.sin(G.worldTime * flashRate) > 0 ? 0xff6600 : 0xff0000
@@ -598,7 +620,7 @@ export function updateEnemies(dt: number): void {
             if (s.dead) return;
             /* Explosion VFX */
             const explode = new THREE.Mesh(
-              new THREE.SphereGeometry(4, 12, 8),
+              _bomberExplodeGeo,
               new THREE.MeshBasicMaterial({ color: 0xff4400, transparent: true, opacity: 0.6, depthWrite: false }),
             );
             explode.position.copy(s.mesh.position);
@@ -640,7 +662,9 @@ export function updateEnemies(dt: number): void {
       }
     }
 
-    const moved = s.mesh.position.distanceToSquared(prevPos) > 0.001;
+    const dx_m = s.mesh.position.x - prevPos.x;
+    const dz_m = s.mesh.position.z - prevPos.z;
+    const moved = (dx_m * dx_m + dz_m * dz_m) > 0.001;
 
     /* Spin elite aura ring */
     if (s.isElite) {

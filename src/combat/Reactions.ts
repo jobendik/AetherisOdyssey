@@ -5,7 +5,7 @@ import type { EnemyEntity, ElementType } from '../types';
 import { REACTIONS } from '../data/ReactionData';
 import { SFX } from '../audio/Audio';
 import { spawnParts } from '../systems/Particles';
-import { wH, legacyLightIntensity } from '../core/Helpers';
+import { wH, mkPointLight } from '../core/Helpers';
 
 export function tryReaction(el: ElementType, e: EnemyEntity) {
   if (!e.appliedEl || e.appliedEl === el) {
@@ -132,7 +132,7 @@ export function envReaction(pos: THREE.Vector3, el: ElementType, radius = 4): vo
   if (el === 'Electro') {
     /* Electric charge — spark particles and brief light */
     spawnParts(new THREE.Vector3(pos.x, y + 0.5, pos.z), '#cc66ff', 16, 12);
-    const light = new THREE.PointLight(0x9966ff, legacyLightIntensity(2), 8);
+    const light = mkPointLight(0x9966ff, 2, 8);
     light.position.set(pos.x, y + 1.5, pos.z);
     G.scene!.add(light);
     /* Chain damage nearby enemies */

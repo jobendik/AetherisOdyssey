@@ -7,6 +7,10 @@ const PATCH_RADIUS = 110;
 
 let grassMesh: THREE.Mesh | null = null;
 
+async function yieldToBrowser(): Promise<void> {
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+}
+
 const grassVertexShader = /* glsl */ `
   attribute vec3 offset;
   attribute float scale;
@@ -73,7 +77,7 @@ const grassFragmentShader = /* glsl */ `
   }
 `;
 
-export function buildGrass(): void {
+export async function buildGrass(): Promise<void> {
   /* Blade geometry: a simple tapered triangle strip (3 quads) */
   const baseGeo = new THREE.BufferGeometry();
   const verts = new Float32Array([
@@ -125,6 +129,8 @@ export function buildGrass(): void {
     tints[idx + 2] = c[2] + (Math.random() - 0.5) * 0.04;
 
     placed++;
+
+    if (placed % 1800 === 0) await yieldToBrowser();
   }
 
   /* Build InstancedBufferGeometry from the base blade */

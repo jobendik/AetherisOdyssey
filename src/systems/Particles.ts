@@ -13,29 +13,64 @@ const ELEM_COLORS: Record<ElementType, { primary: number; secondary: number }> =
   Hydro:  { primary: 0x4488ff, secondary: 0x88ccff },
 };
 
+const HIT_GEOMETRIES = {
+  sphere: new THREE.SphereGeometry(1, 6, 6),
+  tetra: new THREE.TetrahedronGeometry(1),
+  octa: new THREE.OctahedronGeometry(1),
+};
+
+/* Reusable temp vector to avoid per-frame allocations */
+const _tempDir = new THREE.Vector3();
+
+/* Cached ring geometries keyed by radius to avoid GC pressure */
+const _ringGeoCache = new Map<number, THREE.RingGeometry>();
+
+function getCachedRingGeo(radius: number): THREE.RingGeometry {
+  let geo = _ringGeoCache.get(radius);
+  if (!geo) {
+    geo = new THREE.RingGeometry(radius * 0.55, radius, 32);
+    _ringGeoCache.set(radius, geo);
+  }
+  return geo;
+}
+
+const hitMaterialCache = new Map<number, THREE.MeshBasicMaterial>();
+
+function getHitGeometry(element: ElementType): THREE.BufferGeometry {
+  if (element === 'Cryo') return HIT_GEOMETRIES.octa;
+  if (element === 'Pyro') return HIT_GEOMETRIES.tetra;
+  return HIT_GEOMETRIES.sphere;
+}
+
+function getHitMaterial(color: number): THREE.MeshBasicMaterial {
+  let material = hitMaterialCache.get(color);
+  if (!material) {
+    material = new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.9,
+    });
+    hitMaterialCache.set(color, material);
+  }
+  return material;
+}
+
 export function spawnElementalHit(pos: THREE.Vector3, element: ElementType): void {
   const col = ELEM_COLORS[element] || ELEM_COLORS.Anemo;
   const count = 16;
+  const geometry = getHitGeometry(element);
   for (let i = 0; i < count; i++) {
     const isSecondary = Math.random() > 0.5;
     const size = 0.12 + Math.random() * 0.18;
-    const geo = element === 'Cryo'
-      ? new THREE.OctahedronGeometry(size)
-      : element === 'Pyro'
-      ? new THREE.TetrahedronGeometry(size)
-      : new THREE.SphereGeometry(size, 6, 6);
     const m = new THREE.Mesh(
-      geo,
-      new THREE.MeshBasicMaterial({
-        color: isSecondary ? col.secondary : col.primary,
-        transparent: true,
-        opacity: 0.9,
-      }),
+      geometry,
+      getHitMaterial(isSecondary ? col.secondary : col.primary),
     );
     m.position.copy(pos);
+    m.scale.setScalar(size);
     G.scene!.add(m);
     const speed = 6 + Math.random() * 10;
-    const dir = new THREE.Vector3(
+    _tempDir.set(
       (Math.random() - 0.5) * 2,
       Math.random() * 1.5 + 0.5,
       (Math.random() - 0.5) * 2,
@@ -43,7 +78,8 @@ export function spawnElementalHit(pos: THREE.Vector3, element: ElementType): voi
     G.entities.particles.push({
       mesh: m,
       life: 0.4 + Math.random() * 0.35,
-      vel: dir.multiplyScalar(speed),
+      vel: _tempDir.clone().multiplyScalar(speed),
+      cleanup: 'shared',
     });
   }
 }
@@ -66,6 +102,7 @@ export function spawnParts(
         Math.random() * spread,
         (Math.random() - 0.5) * spread,
       ),
+      cleanup: 'pool',
     });
   }
 }
@@ -76,7 +113,7 @@ export function spawnRing(
   radius: number,
 ): void {
   const r = new THREE.Mesh(
-    new THREE.RingGeometry(radius * 0.55, radius, 32),
+    getCachedRingGeo(radius),
     new THREE.MeshBasicMaterial({
       color,
       transparent: true,
@@ -90,27 +127,73 @@ export function spawnRing(
   G.entities.particles.push({
     mesh: r,
     life: 0.45,
-    vel: new THREE.Vector3(),
+    vel: _tempDir.set(0, 0, 0).clone(),
     ring: true,
     ss: 0.3,
     es: 1.4,
+    cleanup: 'dispose',
   });
 }
 
+function disposeObjectMaterials(root: THREE.Object3D): void {
+  root.traverse((obj) => {
+    const mesh = obj as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    materials.forEach((material) => material.dispose());
+  });
+}
+
+function disposeObjectGeometryAndMaterials(root: THREE.Object3D): void {
+  root.traverse((obj) => {
+    const mesh = obj as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    mesh.geometry.dispose();
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    materials.forEach((material) => material.dispose());
+  });
+}
+
+function cleanupParticle(p: (typeof G.entities.particles)[number]): void {
+  if (p.cleanup === 'pool') {
+    releaseParticleMesh(p.mesh as THREE.Mesh);
+    return;
+  }
+
+  G.scene!.remove(p.mesh);
+
+  if (p.cleanup === 'afterimage') {
+    disposeObjectMaterials(p.mesh);
+    return;
+  }
+
+  if (p.cleanup === 'shared') {
+    return;
+  }
+
+  /* For 'dispose': only dispose material, geometry may be cached */
+  disposeObjectMaterials(p.mesh);
+}
+
 export function updateParticles(dt: number): void {
-  for (let i = G.entities.particles.length - 1; i >= 0; i--) {
-    const p = G.entities.particles[i];
+  const particles = G.entities.particles;
+  let len = particles.length;
+  for (let i = len - 1; i >= 0; i--) {
+    const p = particles[i];
     p.life -= dt;
     if (p.life <= 0) {
-      releaseParticleMesh(p.mesh);
-      G.entities.particles.splice(i, 1);
+      cleanupParticle(p);
+      /* Swap-and-pop: O(1) removal instead of O(n) splice */
+      len--;
+      if (i < len) particles[i] = particles[len];
+      particles.length = len;
       continue;
     }
     if (p.ring) {
       const pr = 1 - p.life / 0.45;
       p.mesh.scale.setScalar(lerp(p.ss!, p.es!, pr));
-      (p.mesh.material as THREE.MeshBasicMaterial).opacity = 0.8 * (1 - pr);
-    } else if ((p as any).afterimage) {
+      ((p.mesh as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = 0.8 * (1 - pr);
+    } else if (p.afterimage) {
       /* Afterimage ghost fade-out */
       const alpha = p.life / 0.35;
       p.mesh.traverse((c: THREE.Object3D) => {

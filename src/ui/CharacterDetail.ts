@@ -43,9 +43,14 @@ function closeCharacterDetail(): void {
 
 function buildContent(idx: number): string {
   const m = PARTY[idx];
-  const stats = calcStats();
-  const w = getW(G.inventory.equippedWeapon);
-  const a = getA(G.inventory.equippedArtifact || '');
+  const stats = calcStats({
+    memberIdx: idx,
+    weaponId: m.equippedWeapon,
+    artifactId: m.equippedArtifact,
+    artifactIds: m.equippedArtifacts,
+  });
+  const w = getW(m.equippedWeapon || '');
+  const a = getA(m.equippedArtifact || '');
 
   const rarityStars = (r: number) => '★'.repeat(r) + '☆'.repeat(5 - r);
 

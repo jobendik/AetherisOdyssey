@@ -27,6 +27,7 @@ export const G = {
 
   /* Game flow */
   hasStarted: false,
+  bootReady: false,
   isActive: false,
   inDialogue: false,
   dialogueLines: [] as string[],
@@ -112,6 +113,22 @@ export const G = {
   /* Performance */
   fpsSamples: [] as number[],
   pingMs: 32,
+  startupMetrics: {
+    startedAt: typeof performance !== 'undefined' ? performance.now() : 0,
+    initStartedAt: null as number | null,
+    uiReadyAt: null as number | null,
+    worldReadyAt: null as number | null,
+    firstFrameAt: null as number | null,
+    composerReadyAt: null as number | null,
+  },
+  frameMetrics: {
+    updateMs: 0,
+    renderMs: 0,
+    enemyMs: 0,
+    particleMs: 0,
+    minimapMs: 0,
+    reflectionMs: 0,
+  },
 
   /* Update throttles */
   lastMini: 0,
@@ -219,6 +236,9 @@ export function saveMem(): void {
   m.skillCd = G.skillCd;
   m.burstCd = G.burstCd;
   m.burstEnergy = G.burstEnergy;
+  m.equippedWeapon = G.inventory.equippedWeapon;
+  m.equippedArtifact = G.inventory.equippedArtifact;
+  m.equippedArtifacts = [...G.inventory.equippedArtifacts];
 }
 
 export function loadMem(): void {
@@ -228,6 +248,9 @@ export function loadMem(): void {
   G.skillCd = m.skillCd;
   G.burstCd = m.burstCd;
   G.burstEnergy = m.burstEnergy;
+  G.inventory.equippedWeapon = m.equippedWeapon || G.inventory.weapons[0] || 'w1';
+  G.inventory.equippedArtifact = m.equippedArtifact ?? null;
+  G.inventory.equippedArtifacts = [...(m.equippedArtifacts || [])];
 }
 
 export function mem() {

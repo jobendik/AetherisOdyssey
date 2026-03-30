@@ -145,24 +145,26 @@ function distXZ(a: THREE.Vector3, b: THREE.Vector3): number {
   return Math.sqrt(dx * dx + dz * dz);
 }
 
+/* Cached vectors for updateTargetSel to avoid per-frame allocations */
+const _tsCamFwd = new THREE.Vector3();
+const _tsEnemyDir = new THREE.Vector3();
+
 export function updateTargetSel(): void {
   let best = null as typeof G.target;
   let bs = Infinity;
-  const cf = new THREE.Vector3();
-  G.cam!.getWorldDirection(cf);
-  cf.y = 0;
-  cf.normalize();
+  G.cam!.getWorldDirection(_tsCamFwd);
+  _tsCamFwd.y = 0;
+  _tsCamFwd.normalize();
+  const px = G.player!.position.x;
+  const pz = G.player!.position.z;
   for (const s of G.entities.slimes) {
     if (s.dead) continue;
-    const fl = new THREE.Vector3(
-      s.mesh.position.x - G.player!.position.x,
-      0,
-      s.mesh.position.z - G.player!.position.z,
-    );
-    const d = fl.length();
+    const dx = s.mesh.position.x - px;
+    const dz = s.mesh.position.z - pz;
+    const d = Math.sqrt(dx * dx + dz * dz);
     if (d > 14 || d < 0.001) continue;
-    fl.normalize();
-    const a = cf.angleTo(fl);
+    _tsEnemyDir.set(dx / d, 0, dz / d);
+    const a = _tsCamFwd.angleTo(_tsEnemyDir);
     if (a > 0.9) continue;
     const sc = d + a * 8;
     if (sc < bs) {

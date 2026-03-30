@@ -29,7 +29,7 @@ import { buildGuideNPC, updateNPC } from './entities/NPC';
 import { updateCelEmissiveMats } from './core/Helpers';
 
 /* ─── Entities ─── */
-import { buildPlayer, applyVisuals } from './entities/Player';
+import { buildPlayer, applyVisuals, loadPlayerModel } from './entities/Player';
 import { loadEnemyModels, populateEnemies, updateEnemies } from './entities/Enemy';
 import { updateBoss, spawnHypostasis, updateHypostasis } from './entities/Boss';
 
@@ -50,12 +50,21 @@ import { populateCampfires } from './systems/Cooking';
 import { updateLOD } from './systems/LOD';
 import { populateFishSpots, updateFishing } from './systems/Fishing';
 import { initDefaultAtlas } from './systems/TextureAtlas';
+import { warmParticlePool } from './systems/ObjectPool';
 
 /* ─── Input ─── */
 import { setupInput, canInteract } from './input/Input';
 
 /* ─── Lock-on indicator ─── */
 let lockOnSprite: THREE.Sprite | null = null;
+
+function recordFrameMetric(
+  key: keyof typeof G.frameMetrics,
+  startedAt: number,
+): void {
+  const elapsed = performance.now() - startedAt;
+  G.frameMetrics[key] += (elapsed - G.frameMetrics[key]) * 0.15;
+}
 
 function updateLockOnIndicator(dt: number): void {
   if (G.lockOnTarget) {
@@ -231,13 +240,65 @@ function stopLoadingTips(): void {
   if (tipInterval) { clearInterval(tipInterval); tipInterval = null; }
 }
 
+function markStartupMetric(
+  key: 'initStartedAt' | 'uiReadyAt' | 'worldReadyAt' | 'firstFrameAt' | 'composerReadyAt',
+): void {
+  if (G.startupMetrics[key] !== null) return;
+  G.startupMetrics[key] = performance.now() - G.startupMetrics.startedAt;
+}
+
+function setLoadingProgress(progress: number, status: string): void {
+  const pct = Math.max(0, Math.min(100, progress));
+  ui.loadingStatus.textContent = status;
+  ui.loadingPercent.textContent = `${Math.round(pct)}%`;
+  (ui.loadingBarFill as HTMLElement).style.width = `${pct}%`;
+}
+
+async function allowPaint(): Promise<void> {
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+function configureAssetProgress(progressStart: number, progressEnd: number): void {
+  THREE.DefaultLoadingManager.onStart = (_url, itemsLoaded, itemsTotal) => {
+    const ratio = itemsTotal > 0 ? itemsLoaded / itemsTotal : 0;
+    const pct = progressStart + (progressEnd - progressStart) * ratio;
+    setLoadingProgress(pct, `Loading assets ${itemsLoaded}/${itemsTotal}`);
+  };
+
+  THREE.DefaultLoadingManager.onProgress = (_url, itemsLoaded, itemsTotal) => {
+    const ratio = itemsTotal > 0 ? itemsLoaded / itemsTotal : 0;
+    const pct = progressStart + (progressEnd - progressStart) * ratio;
+    setLoadingProgress(pct, `Loading assets ${itemsLoaded}/${itemsTotal}`);
+  };
+
+  THREE.DefaultLoadingManager.onLoad = () => {
+    setLoadingProgress(progressEnd, 'Assets loaded');
+  };
+
+  THREE.DefaultLoadingManager.onError = (url) => {
+    setLoadingProgress(progressEnd, `Some assets failed to load: ${url.split('/').pop() || url}`);
+  };
+}
+
+function clearAssetProgress(): void {
+  THREE.DefaultLoadingManager.onStart = () => {};
+  THREE.DefaultLoadingManager.onProgress = () => {};
+  THREE.DefaultLoadingManager.onLoad = () => {};
+  THREE.DefaultLoadingManager.onError = () => {};
+}
+
 /* ════════════════════════════════════════════
    INIT
    ════════════════════════════════════════════ */
 
 async function init(): Promise<void> {
+  markStartupMetric('initStartedAt');
   initUI();
+  ui.startBtn.setAttribute('disabled', 'true');
   startLoadingTips();
+  markStartupMetric('uiReadyAt');
+  setLoadingProgress(2, 'Preparing interface');
+  await allowPaint();
 
   /* Three.js setup */
   G.scene = new THREE.Scene();
@@ -247,29 +308,65 @@ async function init(): Promise<void> {
   G.rend = new THREE.WebGLRenderer({ antialias: true });
   G.rend.setSize(innerWidth, innerHeight);
   G.rend.setPixelRatio(Math.min(devicePixelRatio, 2));
-  G.rend.outputColorSpace = THREE.SRGBColorSpace;
+  G.rend.outputEncoding = THREE.sRGBEncoding;
   G.rend.shadowMap.enabled = true;
   G.rend.shadowMap.type = THREE.PCFSoftShadowMap;
   document.body.appendChild(G.rend.domElement);
   G.clock = new THREE.Clock();
+  setLoadingProgress(10, 'Initializing renderer');
+  await allowPaint();
 
-  /* Build world */
+  /* Input can bind early, but Enter World stays disabled until boot completes. */
+  setupInput();
+
+  setLoadingProgress(16, 'Building world');
   setupLighting();
   buildSkyDome();
   initDefaultAtlas();
+  warmParticlePool(60);
   buildTerrain();
   buildWater();
   buildSpawnRuin();
-  buildGuideNPC();
-  buildLandmarks();
+  await allowPaint();
+  setLoadingProgress(20, 'Placing landmarks');
+  await buildLandmarks();
   buildViewpoints();
-  populateTrees(100);
-  populateRocks(40);
-  populateFlowers(60);
-  buildGrass();
-  
-  await loadEnemyModels();
+  setLoadingProgress(24, 'Growing vegetation');
+  await populateTrees(100);
+  setLoadingProgress(27, 'Scattering rocks and flowers');
+  await populateRocks(40);
+  await populateFlowers(60);
+  setLoadingProgress(30, 'Growing grass');
+  await buildGrass();
+  await allowPaint();
 
+  /* Build player */
+  buildPlayer();
+  loadMem();
+  applyVisuals();
+  buildPartyHud();
+  setLoadingProgress(34, 'Preparing player');
+  await allowPaint();
+
+  /* Preload post-processing and asset-heavy models before enabling start. */
+  const postProcessingPromise = setupPostProcessing().then(() => {
+    markStartupMetric('composerReadyAt');
+  });
+  configureAssetProgress(38, 78);
+  setLoadingProgress(38, 'Loading models and textures');
+  await allowPaint();
+  const preloadResults = await Promise.allSettled([
+    loadEnemyModels(),
+    loadPlayerModel(),
+    buildGuideNPC(),
+    postProcessingPromise,
+  ]);
+  clearAssetProgress();
+  preloadResults.forEach((result) => {
+    if (result.status === 'rejected') console.warn('Preload step failed:', result.reason);
+  });
+
+  setLoadingProgress(82, 'Populating world');
   populateEnemies(16, 'slime');
   populateEnemies(5, 'archer');
   populateEnemies(3, 'shield');
@@ -282,36 +379,22 @@ async function init(): Promise<void> {
   populateOreNodes(8);
   populateChests(14);
   populateProps(25);
-
-  /* Field boss: Electro Hypostasis */
   spawnHypostasis(65, 55);
-
-  /* Fishing spots */
   populateFishSpots(5);
-
-  /* Waypoints */
   buildWaypoints();
-
-  /* Puzzles */
   buildPuzzles();
-
-  /* Launch points & updrafts */
   buildLaunchPoints();
+  initCommissions();
+  initSideQuests();
+  await allowPaint();
 
-  /* Build player */
-  buildPlayer();
-  loadMem();
-  applyVisuals();
-  buildPartyHud();
-
-  /* Input */
-  setupInput();
-
-  /* Post-processing (must be after scene + camera are ready) */
-  setupPostProcessing();
-
-  /* Ambient world particles */
+  setLoadingProgress(92, 'Finalizing world');
   spawnAmbientParticles();
+
+  /* Pre-compile all shader programs so first interaction doesn't stall */
+  if (G.rend && G.scene && G.cam) {
+    G.rend.compile(G.scene, G.cam);
+  }
 
   /* Slash trail */
   initSlashTrail();
@@ -322,12 +405,6 @@ async function init(): Promise<void> {
   /* HUD */
   updateHUD(true);
 
-  /* Daily commissions */
-  initCommissions();
-
-  /* Side quests */
-  initSideQuests();
-
   /* Performance HUD */
   initPerfHud();
 
@@ -336,8 +413,12 @@ async function init(): Promise<void> {
   /* Resize */
   addEventListener('resize', onResize);
 
-  /* Start loop */
+  markStartupMetric('worldReadyAt');
   stopLoadingTips();
+  G.bootReady = true;
+  ui.startBtn.removeAttribute('disabled');
+  ui.startBtn.textContent = 'Enter World';
+  setLoadingProgress(100, 'Ready to enter');
   animate();
 }
 
@@ -362,15 +443,24 @@ function animate(): void {
   G.pingMs = 28 + Math.round((Math.sin(G.worldTime * 0.7) * 0.5 + 0.5) * 16);
 
   if (G.isActive) updateGame(dt);
+
+  const reflectionStartedAt = performance.now();
   renderWaterReflection();
+  recordFrameMetric('reflectionMs', reflectionStartedAt);
+
+  const renderStartedAt = performance.now();
   if (G.composer) {
     G.composer.render();
   } else {
     G.rend!.render(G.scene!, G.cam!);
   }
+  recordFrameMetric('renderMs', renderStartedAt);
+
+  markStartupMetric('firstFrameAt');
 }
 
 function updateGame(dt: number): void {
+  const updateStartedAt = performance.now();
   updateTimers(dt);
   updateDayNight(dt);
   updateGodRays();
@@ -390,14 +480,22 @@ function updateGame(dt: number): void {
   updatePose(dt);
   updateCollectibles(dt);
   updateAerialOrbs(dt);
+
+  const enemyStartedAt = performance.now();
   updateEnemies(dt);
+  recordFrameMetric('enemyMs', enemyStartedAt);
+
   updateProjectiles(dt);
   updateBoss(dt);
   updateHypostasis(dt);
   updateViewpoints(dt);
   updateNPC(dt);
   updateTornado(dt);
+
+  const particleStartedAt = performance.now();
   updateParticles(dt);
+  recordFrameMetric('particleMs', particleStartedAt);
+
   updateWindParts(dt);
   updateAmbientParticles(dt);
   updateSlashTrail(dt);
@@ -407,7 +505,11 @@ function updateGame(dt: number): void {
   updateLaunchPoints(dt);
   updateTargetSel();
   updateCamera(dt);
+
+  const minimapStartedAt = performance.now();
   updateMinimap();
+  recordFrameMetric('minimapMs', minimapStartedAt);
+
   updateHUD();
   updateLockOnIndicator(dt);
   updateInteractPrompts();
@@ -433,6 +535,7 @@ function updateGame(dt: number): void {
   updateTerrain();
   updateTrees();
   updateCelEmissiveMats(G.worldTime);
+  recordFrameMetric('updateMs', updateStartedAt);
 }
 
 /* ─── Boot ─── */

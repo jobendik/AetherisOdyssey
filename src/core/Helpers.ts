@@ -25,11 +25,7 @@ export const normAng = (a: number): number => {
 export const rnd = (a: number, b: number): number =>
   a + Math.random() * (b - a);
 
-/* Three.js removed legacy light scaling, so older authored scenes need a boost. */
-export const LEGACY_LIGHT_INTENSITY_SCALE = Math.PI;
 
-export const legacyLightIntensity = (intensity: number): number =>
-  intensity * LEGACY_LIGHT_INTENSITY_SCALE;
 
 /* ──────── Cel-shaded material helpers ──────── */
 
@@ -100,6 +96,8 @@ export function mkCelMat(
   celLitMats.push(m);
   return m;
 }
+
+
 
 /* ──────── Emissive cel material for glowing surfaces ──────── */
 
@@ -179,10 +177,53 @@ export function mkLight(
   x: number,
   y: number,
   z: number,
-): THREE.PointLight {
-  const l = new THREE.PointLight(color, legacyLightIntensity(intensity), dist);
+): THREE.Sprite {
+  const l = mkPointLight(color, intensity, dist);
   l.position.set(x, y, z);
   return l;
+}
+
+export function mkPointLight(
+  color: number,
+  intensity: number,
+  dist: number,
+): THREE.Sprite {
+  const mat = new THREE.SpriteMaterial({
+    color,
+    transparent: true,
+    opacity: Math.min(intensity * 0.4, 1.0),
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.setScalar(dist * 0.5);
+  return sprite;
+}
+
+export function mkAmbientLight(
+  color: number,
+  intensity: number,
+): THREE.AmbientLight {
+  return new THREE.AmbientLight(color, intensity);
+}
+
+export function mkDirectionalLight(
+  color: number,
+  intensity: number,
+): THREE.DirectionalLight {
+  return new THREE.DirectionalLight(color, intensity);
+}
+
+export function mkHemisphereLight(
+  skyColor: number,
+  groundColor: number,
+  intensity: number,
+): THREE.HemisphereLight {
+  return new THREE.HemisphereLight(
+    skyColor,
+    groundColor,
+    intensity,
+  );
 }
 
 /* ──────── World coordinate helpers ──────── */

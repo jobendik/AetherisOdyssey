@@ -1,10 +1,14 @@
 import * as THREE from 'three';
 import { G } from '../core/GameState';
-import { mkMesh, mkLight, wH, rnd, mkCelMat, mkCelEmissiveMat, distXZ, legacyLightIntensity } from '../core/Helpers';
+import { mkMesh, mkLight, mkPointLight, wH, rnd, mkCelMat, mkCelEmissiveMat, distXZ } from '../core/Helpers';
 import { SFX } from '../audio/Audio';
 import { spawnParts, spawnRing } from '../systems/Particles';
 
-export function buildLandmarks(): void {
+async function yieldToBrowser(): Promise<void> {
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+export async function buildLandmarks(): Promise<void> {
   const stone = mkCelMat(0xb5aca5, 0xa59c95, 0.2);
   const dark = mkCelMat(0x7a726b, 0x6a625b, 0.15);
   const wood = mkCelMat(0x8b6b3d, 0x7a5c32, 0);
@@ -42,6 +46,7 @@ export function buildLandmarks(): void {
       G.scene!.add(bracket);
     }
   }
+  await yieldToBrowser();
 
   /* ── Tower ── */
   const tx = -50, tz = 40, ty = wH(tx, tz);
@@ -75,6 +80,7 @@ export function buildLandmarks(): void {
     G.scene!.add(win);
   }
   G.scene!.add(mkLight(0xffaa44, 0.6, 25, tx, ty + 22, tz));
+  await yieldToBrowser();
 
   /* ── Shrine ── */
   const sx = 60, sz = 55, sy = wH(sx, sz);
@@ -117,6 +123,7 @@ export function buildLandmarks(): void {
     ),
   );
   G.scene!.add(mkLight(0x88ddff, 0.5, 15, sx, sy + 3, sz));
+  await yieldToBrowser();
 
   /* ── Windmill ── */
   const wx = -30, wz = -60, wy = wH(wx, wz);
@@ -144,6 +151,7 @@ export function buildLandmarks(): void {
     cloth.rotation.z = ba;
     G.scene!.add(cloth);
   }
+  await yieldToBrowser();
 
   /* ── Ruined Gate ── */
   const gx = 70, gz = -60, gy = wH(gx, gz);
@@ -179,6 +187,7 @@ export function buildLandmarks(): void {
   );
   vine.rotation.z = 0.15;
   G.scene!.add(vine);
+  await yieldToBrowser();
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -221,7 +230,7 @@ export function buildViewpoints(): void {
     obelisk.castShadow = true;
     G.scene!.add(obelisk);
     /* Light beacon */
-    const light = new THREE.PointLight(0xffdd44, legacyLightIntensity(0.6), 12);
+    const light = mkPointLight(0xffdd44, 0.6, 12);
     light.position.set(vx, vy + 3, vz);
     G.scene!.add(light);
 

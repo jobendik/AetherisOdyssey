@@ -1,7 +1,5 @@
 import { G } from '../core/GameState';
 import { SFX, setMusicVolume, setSfxVolume } from '../audio/Audio';
-import { SSAOPass } from 'three/examples/jsm/postprocessing/SSAOPass.js';
-import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 
 /* ═══════════════════════════════════════
    Settings Menu
@@ -60,8 +58,8 @@ export function applySettings(): void {
   /* Post-processing passes */
   if (G.composer) {
     for (const pass of (G.composer as any).passes) {
-      if (pass instanceof SSAOPass) pass.enabled = settings.ssao;
-      if (pass instanceof UnrealBloomPass) pass.enabled = settings.bloom;
+      if (pass?.userData?.passType === 'ssao') pass.enabled = settings.ssao;
+      if (pass?.userData?.passType === 'bloom') pass.enabled = settings.bloom;
     }
   }
 

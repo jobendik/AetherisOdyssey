@@ -1,9 +1,17 @@
-import { G, mem } from '../core/GameState';
+import { G } from '../core/GameState';
+import { PARTY } from '../data/PartyData';
 import { WEAPONS, ARTIFACTS, FOODS, ARTIFACT_SETS } from '../data/ItemData';
 import { getTalentBonuses } from './Talents';
 import { getConstellationBonuses } from './Constellations';
 import { applySubstatBonuses } from './ArtifactSubstats';
 import type { Weapon, Artifact, Food, CalcStatsResult } from '../types';
+
+interface CalcStatsOptions {
+  memberIdx?: number;
+  weaponId?: string;
+  artifactId?: string | null;
+  artifactIds?: string[];
+}
 
 export function getW(id: string): Weapon | undefined {
   return WEAPONS.find((w) => w.id === id);
@@ -17,8 +25,14 @@ export function getF(id: string): Food | undefined {
   return FOODS.find((f) => f.id === id);
 }
 
-export function calcStats(): CalcStatsResult {
-  const m = mem();
+export function calcStats(options: CalcStatsOptions = {}): CalcStatsResult {
+  const memberIdx = options.memberIdx ?? G.activeIdx;
+  const m = PARTY[memberIdx];
+  const equippedWeapon = options.weaponId ?? m.equippedWeapon ?? G.inventory.equippedWeapon;
+  const equippedArtifact = options.artifactId !== undefined
+    ? options.artifactId
+    : (m.equippedArtifact ?? G.inventory.equippedArtifact);
+  const equippedArtifacts = options.artifactIds ?? m.equippedArtifacts ?? G.inventory.equippedArtifacts;
   let atk = m.baseDmg + G.lv * 2;
   let bonusHp = 0;
   let elemDmg = 1;
@@ -26,10 +40,10 @@ export function calcStats(): CalcStatsResult {
   let critBonus = 0;
   let healOnHit = 0;
 
-  const w = getW(G.inventory.equippedWeapon);
+  const w = getW(equippedWeapon);
   if (w) atk += w.atk;
   /* Weapon enhancement bonus: +3 ATK per level */
-  const wLv = G.weaponLevels[G.inventory.equippedWeapon] || 0;
+  const wLv = G.weaponLevels[equippedWeapon] || 0;
   atk += wLv * 3;
   if (w && w.id === 'w3') elemDmg += 0.2;
   if (w && w.id === 'w4') critBonus += 0.15;
@@ -37,7 +51,7 @@ export function calcStats(): CalcStatsResult {
   if (w && w.id === 'w9') elemDmg += 0.3;
 
   /* Talent bonuses */
-  const tb = getTalentBonuses(G.activeIdx);
+  const tb = getTalentBonuses(memberIdx);
   atk = Math.round(atk * tb.atkMult);
   critBonus += tb.critBonus;
   burstDmg += tb.burstDmg;
@@ -45,14 +59,14 @@ export function calcStats(): CalcStatsResult {
   elemDmg += tb.elemDmg;
 
   /* Constellation bonuses */
-  const cb = getConstellationBonuses(G.activeIdx);
+  const cb = getConstellationBonuses(memberIdx);
   atk = Math.round(atk * cb.atkMult);
   critBonus += cb.critBonus;
   burstDmg += cb.burstDmg;
   bonusHp += cb.shieldHp;
   elemDmg += cb.elemDmg;
 
-  const a = getA(G.inventory.equippedArtifact || '');
+  const a = getA(equippedArtifact || '');
   if (a) {
     if (a.stat === 'atk') atk += a.val;
     if (a.stat === 'hp') bonusHp += a.val;
@@ -65,7 +79,7 @@ export function calcStats(): CalcStatsResult {
   }
 
   /* Multi-slot artifacts + set bonuses */
-  const equipped = (G.inventory.equippedArtifacts || []).map(id => getA(id)).filter(Boolean) as Artifact[];
+  const equipped = (equippedArtifacts || []).map(id => getA(id)).filter(Boolean) as Artifact[];
   for (const ea of equipped) {
     if (ea.stat === 'atk') atk += ea.val;
     if (ea.stat === 'hp') bonusHp += ea.val;

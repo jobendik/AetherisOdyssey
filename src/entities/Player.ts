@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
+import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { G, mem } from '../core/GameState';
 import { mkMesh } from '../core/Helpers';
 import { ui } from '../ui/UIRefs';
@@ -22,31 +23,113 @@ const ANIM_PATHS: Record<string, string> = {
   death: '/models/animations/Standing React Death Backward.fbx',
 };
 
-export async function loadPlayerModel(): Promise<void> {
+interface PlayerAssets {
+  baseModel: THREE.Group;
+  clips: Record<string, THREE.AnimationClip>;
+  wings: THREE.Group | null;
+}
+
+let playerAssetsPromise: Promise<PlayerAssets> | null = null;
+
+async function preloadPlayerAssets(): Promise<PlayerAssets> {
+  if (playerAssetsPromise) return playerAssetsPromise;
+
   const loader = new FBXLoader();
+  playerAssetsPromise = (async () => {
+    const baseModel = await loader.loadAsync('/models/characters/player.fbx');
 
-  /* ─── Load base model ─── */
-  const fbx = await loader.loadAsync('/models/characters/player.fbx');
+    const desiredHeight = 3.5;
+    const box = new THREE.Box3().setFromObject(baseModel);
+    const currentHeight = box.max.y - box.min.y;
+    const scaleFactor = desiredHeight / currentHeight;
+    baseModel.scale.setScalar(scaleFactor);
 
-  /* Scale down — Mixamo FBX models are typically in cm */
-  const desiredHeight = 3.5;
-  const box = new THREE.Box3().setFromObject(fbx);
-  const currentHeight = box.max.y - box.min.y;
-  const scaleFactor = desiredHeight / currentHeight;
-  fbx.scale.setScalar(scaleFactor);
+    baseModel.updateMatrixWorld(true);
+    const boxScaled = new THREE.Box3().setFromObject(baseModel);
+    baseModel.position.y = -boxScaled.min.y;
 
-  /* Center the model so feet are at Y=0 */
-  fbx.updateMatrixWorld(true);
-  const boxScaled = new THREE.Box3().setFromObject(fbx);
-  fbx.position.y = -boxScaled.min.y;
+    baseModel.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        child.castShadow = true;
+        child.receiveShadow = true;
+      }
+    });
 
-  /* Enable shadows on all meshes */
-  fbx.traverse((child) => {
-    if ((child as THREE.Mesh).isMesh) {
-      child.castShadow = true;
-      child.receiveShadow = true;
+    const clipsEntries = await Promise.all(
+      Object.entries(ANIM_PATHS).map(async ([name, path]) => {
+        try {
+          const animFbx = await loader.loadAsync(path);
+          return [name, animFbx.animations[0] ?? null] as const;
+        } catch (e) {
+          console.warn(`Failed to load animation: ${name}`, e);
+          return [name, null] as const;
+        }
+      }),
+    );
+
+    const clips = clipsEntries.reduce<Record<string, THREE.AnimationClip>>((acc, [name, clip]) => {
+      if (clip) acc[name] = clip;
+      return acc;
+    }, {});
+
+    let wings: THREE.Group | null = null;
+    try {
+      wings = await loader.loadAsync('/models/glider/Wings.fbx');
+
+      const texLoader = new THREE.TextureLoader();
+      const [featherTex, boneTex] = await Promise.all([
+        texLoader.loadAsync('/models/glider/1_AcmbDMNBF2iG-hBpqi9ibg.png'),
+        texLoader.loadAsync('/models/glider/depositphotos_53726629-stock-photo-bone-seamless-texture-til.jpeg'),
+      ]);
+
+      wings.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) {
+          const mesh = child as THREE.Mesh;
+          mesh.castShadow = true;
+          const name = mesh.name.toLowerCase();
+          if (name.includes('bone') || name.includes('frame') || name.includes('arm')) {
+            mesh.material = new THREE.MeshStandardMaterial({
+              map: boneTex,
+              flatShading: false,
+              roughness: 0.8,
+            });
+          } else {
+            mesh.material = new THREE.MeshStandardMaterial({
+              map: featherTex,
+              transparent: true,
+              alphaTest: 0.3,
+              side: THREE.DoubleSide,
+              flatShading: false,
+              roughness: 0.6,
+            });
+          }
+        }
+      });
+
+      wings.updateMatrixWorld(true);
+      const wingsBox = new THREE.Box3().setFromObject(wings);
+      const wSize = new THREE.Vector3();
+      wingsBox.getSize(wSize);
+      const wScale = 4.0 / Math.max(wSize.x, 0.01);
+      wings.scale.setScalar(wScale);
+      wings.rotation.set(-Math.PI / 2, 0, 0);
+      wings.updateMatrixWorld(true);
+      const centeredBox = new THREE.Box3().setFromObject(wings);
+      const center = centeredBox.getCenter(new THREE.Vector3());
+      wings.position.sub(center);
+    } catch (e) {
+      console.warn('Wings FBX load failed, keeping procedural glider:', e);
     }
-  });
+
+    return { baseModel, clips, wings };
+  })();
+
+  return playerAssetsPromise;
+}
+
+export async function loadPlayerModel(): Promise<void> {
+  const assets = await preloadPlayerAssets();
+  const fbx = SkeletonUtils.clone(assets.baseModel);
 
   /* Replace the procedural playerModel with the loaded FBX */
   if (G.playerModel) {
@@ -65,30 +148,16 @@ export async function loadPlayerModel(): Promise<void> {
   G.animActions = {};
 
   /* ─── Load animation clips ─── */
-  const loadPromises = Object.entries(ANIM_PATHS).map(async ([name, path]) => {
-    try {
-      const animFbx = await loader.loadAsync(path);
-      if (animFbx.animations.length > 0) {
-        const clip = animFbx.animations[0];
-        clip.name = name;
-        const action = G.mixer!.clipAction(clip);
-
-        /* Configure action defaults */
-        if (
-          ['jumpUp', 'jumpDown', 'land', 'attack1', 'attack2', 'attack3', 'hit', 'dash', 'skill', 'burst', 'death'].includes(name)
-        ) {
-          action.setLoop(THREE.LoopOnce, 1);
-          action.clampWhenFinished = true;
-        }
-
-        G.animActions![name] = action;
-      }
-    } catch (e) {
-      console.warn(`Failed to load animation: ${name}`, e);
+  for (const [name, clip] of Object.entries(assets.clips)) {
+    const action = G.mixer!.clipAction(clip);
+    if (
+      ['jumpUp', 'jumpDown', 'land', 'attack1', 'attack2', 'attack3', 'hit', 'dash', 'skill', 'burst', 'death'].includes(name)
+    ) {
+      action.setLoop(THREE.LoopOnce, 1);
+      action.clampWhenFinished = true;
     }
-  });
-
-  await Promise.all(loadPromises);
+    G.animActions![name] = action;
+  }
 
   /* Start with idle */
   if (G.animActions!.idle) {
@@ -99,72 +168,13 @@ export async function loadPlayerModel(): Promise<void> {
   G.modelLoaded = true;
   console.log('✅ Player model + animations loaded');
 
-  /* ─── Load Wings FBX model ─── */
-  try {
-    const wingsFbx = await loader.loadAsync('/models/glider/Wings.fbx');
-
-    /* Load wing textures */
-    const texLoader = new THREE.TextureLoader();
-    const featherTex = texLoader.load('/models/glider/1_AcmbDMNBF2iG-hBpqi9ibg.png');
-    const boneTex = texLoader.load('/models/glider/depositphotos_53726629-stock-photo-bone-seamless-texture-til.jpeg');
-
-    /* Apply materials to wing meshes */
-    wingsFbx.traverse((child) => {
-      if ((child as THREE.Mesh).isMesh) {
-        const mesh = child as THREE.Mesh;
-        mesh.castShadow = true;
-        const name = mesh.name.toLowerCase();
-        if (name.includes('bone') || name.includes('frame') || name.includes('arm')) {
-          mesh.material = new THREE.MeshStandardMaterial({
-            map: boneTex,
-            flatShading: false,
-            roughness: 0.8,
-          });
-        } else {
-          mesh.material = new THREE.MeshStandardMaterial({
-            map: featherTex,
-            transparent: true,
-            alphaTest: 0.3,
-            side: THREE.DoubleSide,
-            flatShading: false,
-            roughness: 0.6,
-          });
-        }
-      }
-    });
-
-    /* ─── Measure raw model ─── */
-    wingsFbx.updateMatrixWorld(true);
-    const wingsBox = new THREE.Box3().setFromObject(wingsFbx);
-    const wSize = new THREE.Vector3();
-    wingsBox.getSize(wSize);
-
-    /* Scale: wingspan is X=26.3, target ~4.0 game units wide */
-    const wScale = 4.0 / Math.max(wSize.x, 0.01);
-    wingsFbx.scale.setScalar(wScale);
-
-    /* Orientation: raw Y=feather length (up), need it along -Z (backward)
-       Rotate -90° around X to swing Y→Z */
-    wingsFbx.rotation.set(-Math.PI / 2, 0, 0);
-
-    /* Center the wings after scale+rotation */
-    wingsFbx.updateMatrixWorld(true);
-    const centeredBox = new THREE.Box3().setFromObject(wingsFbx);
-    const center = centeredBox.getCenter(new THREE.Vector3());
-    wingsFbx.position.sub(center);
-
-    /* Replace procedural glider contents */
-    if (G.glider) {
-      while (G.glider.children.length) {
-        G.glider.remove(G.glider.children[0]);
-      }
-      G.glider.add(wingsFbx);
-      /* Position on upper back — slightly behind player center */
-      G.glider.position.set(0, 2.4, -0.5);
+  if (assets.wings && G.glider) {
+    while (G.glider.children.length) {
+      G.glider.remove(G.glider.children[0]);
     }
+    G.glider.add(assets.wings.clone(true));
+    G.glider.position.set(0, 2.4, -0.5);
     console.log('✅ Wings model loaded');
-  } catch (e) {
-    console.warn('Wings FBX load failed, keeping procedural glider:', e);
   }
 }
 
@@ -260,9 +270,6 @@ export function buildPlayer(): void {
   G.swordPivot.add(blade);
   G.swordPivot.visible = false;
   G.player.add(G.swordPivot);
-
-  /* Kick off async model load (non-blocking) */
-  loadPlayerModel().catch((e) => console.warn('Model load failed, using fallback:', e));
 }
 
 export function applyVisuals(): void {

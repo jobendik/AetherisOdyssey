@@ -30,13 +30,13 @@ const treeVertexShader = /* glsl */ `
 
 const treeFragmentShader = /* glsl */ `
   uniform vec3 uColor;
+  uniform vec3 uLightDir;
 
   varying vec3 vNormal;
   varying vec3 vWorldPos;
 
   void main() {
-    vec3 lightDir = normalize(vec3(1.0, 1.5, 0.5));
-    float NdotL = dot(vNormal, lightDir);
+    float NdotL = dot(vNormal, normalize(uLightDir));
 
     /* 3-step cel shading */
     float shade;
@@ -51,13 +51,13 @@ const treeFragmentShader = /* glsl */ `
 
 const trunkFragmentShader = /* glsl */ `
   uniform vec3 uColor;
+  uniform vec3 uLightDir;
 
   varying vec3 vNormal;
   varying vec3 vWorldPos;
 
   void main() {
-    vec3 lightDir = normalize(vec3(1.0, 1.5, 0.5));
-    float NdotL = dot(vNormal, lightDir);
+    float NdotL = dot(vNormal, normalize(uLightDir));
     float shade = NdotL > 0.2 ? 1.0 : 0.7;
 
     vec3 col = uColor * shade;
@@ -67,8 +67,13 @@ const trunkFragmentShader = /* glsl */ `
 
 /* Store references for wind update */
 const treeMaterials: THREE.ShaderMaterial[] = [];
+const _sharedLightDir = new THREE.Vector3(1, 1.5, 0.5).normalize();
 
-export function populateTrees(count: number): void {
+async function yieldToBrowser(): Promise<void> {
+  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+export async function populateTrees(count: number): Promise<void> {
   /* Shared geometries */
   const trunkGeo = new THREE.CylinderGeometry(0.42, 0.65, 4.8, 7);
 
@@ -113,6 +118,7 @@ export function populateTrees(count: number): void {
         uTime: { value: 0 },
         uWindPhase: { value: windPhase },
         uColor: { value: new THREE.Color(0.42, 0.26, 0.15) },
+        uLightDir: { value: _sharedLightDir },
       },
     });
     treeMaterials.push(trunkMat);
@@ -134,6 +140,7 @@ export function populateTrees(count: number): void {
           uTime: { value: 0 },
           uWindPhase: { value: windPhase + j * 0.4 },
           uColor: { value: leafColor.clone().offsetHSL(0, 0, (Math.random() - 0.5) * 0.08) },
+          uLightDir: { value: _sharedLightDir },
         },
       });
       treeMaterials.push(foliageMat);
@@ -151,17 +158,20 @@ export function populateTrees(count: number): void {
     G.scene!.add(t);
     G.entities.trees.push({ x, z, radius: 1.25 * sc });
     registerLOD(t);
+
+    if ((i + 1) % 12 === 0) await yieldToBrowser();
   }
 }
 
 export function updateTrees(): void {
   const t = G.worldTime;
+  if (G.sunLight) _sharedLightDir.copy(G.sunLight.position).normalize();
   for (const mat of treeMaterials) {
     mat.uniforms.uTime.value = t;
   }
 }
 
-export function populateRocks(count: number): void {
+export async function populateRocks(count: number): Promise<void> {
   const rockMats = [
     mkCelMat(0x888880, 0x7a7a72, 0.3),   // gray with moss
     mkCelMat(0x8a8278, 0x7a726a, 0.2),    // warm gray
@@ -182,10 +192,12 @@ export function populateRocks(count: number): void {
     r.castShadow = true;
     G.scene!.add(r);
     registerLOD(r);
+
+    if ((i + 1) % 10 === 0) await yieldToBrowser();
   }
 }
 
-export function populateFlowers(count: number): void {
+export async function populateFlowers(count: number): Promise<void> {
   const cols = [0xff7799, 0xffdd44, 0xff66aa, 0xaaddff, 0xffbb55];
   const stemMat = mkCelMat(0x44882a, 0x3a7622, 0);
   for (let i = 0; i < count; i++) {
@@ -197,5 +209,7 @@ export function populateFlowers(count: number): void {
     fl.position.set(x, y, z);
     G.scene!.add(fl);
     registerLOD(fl);
+
+    if ((i + 1) % 16 === 0) await yieldToBrowser();
   }
 }

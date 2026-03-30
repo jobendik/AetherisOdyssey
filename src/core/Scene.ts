@@ -1,16 +1,69 @@
 import * as THREE from 'three';
-import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
-import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
-import { SSAOPass } from 'three/examples/jsm/postprocessing/SSAOPass.js';
 import { G } from './GameState';
-import { legacyLightIntensity, updateCelLightDir } from './Helpers';
+import { mkAmbientLight, mkDirectionalLight, mkHemisphereLight, updateCelLightDir } from './Helpers';
+import { settings } from '../ui/Settings';
+
+let ambientLight: THREE.AmbientLight | null = null;
+let hemiLight: THREE.HemisphereLight | null = null;
+
+const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));
+
+export interface LightingDebugSettings {
+  timeOfDay: number;
+  freezeTime: boolean;
+  exposure: number;
+  sunScale: number;
+  ambientScale: number;
+  hemiScale: number;
+  fogScale: number;
+}
+
+const lightingDebug: LightingDebugSettings = {
+  timeOfDay: 0.3,
+  freezeTime: false,
+  exposure: 1.1,
+  sunScale: 1,
+  ambientScale: 1,
+  hemiScale: 1,
+  fogScale: 1,
+};
+
+export function getLightingDebugSettings(): LightingDebugSettings {
+  return { ...lightingDebug };
+}
+
+export function updateLightingDebugSettings(next: Partial<LightingDebugSettings>): void {
+  if (typeof next.timeOfDay === 'number') {
+    lightingDebug.timeOfDay = ((next.timeOfDay % 1) + 1) % 1;
+    if (lightingDebug.freezeTime) G.dayTime = lightingDebug.timeOfDay;
+  }
+  if (typeof next.freezeTime === 'boolean') lightingDebug.freezeTime = next.freezeTime;
+  if (typeof next.exposure === 'number') lightingDebug.exposure = Math.max(0.2, next.exposure);
+  if (typeof next.sunScale === 'number') lightingDebug.sunScale = Math.max(0, next.sunScale);
+  if (typeof next.ambientScale === 'number') lightingDebug.ambientScale = Math.max(0, next.ambientScale);
+  if (typeof next.hemiScale === 'number') lightingDebug.hemiScale = Math.max(0, next.hemiScale);
+  if (typeof next.fogScale === 'number') lightingDebug.fogScale = Math.max(0.1, next.fogScale);
+
+  if (G.rend) G.rend.toneMappingExposure = lightingDebug.exposure;
+}
+
+export function resetLightingDebugSettings(): void {
+  updateLightingDebugSettings({
+    timeOfDay: 0.3,
+    freezeTime: false,
+    exposure: 1.1,
+    sunScale: 1,
+    ambientScale: 1,
+    hemiScale: 1,
+    fogScale: 1,
+  });
+}
 
 export function setupLighting(): void {
-  G.scene!.add(new THREE.AmbientLight(0xffffff, legacyLightIntensity(0.42)));
+  ambientLight = mkAmbientLight(0xffffff, 0.34);
+  G.scene!.add(ambientLight);
 
-  const sun = new THREE.DirectionalLight(0xfff4e1, legacyLightIntensity(1.25));
+  const sun = mkDirectionalLight(0xfff4e1, 1.25);
   sun.position.set(110, 150, 60);
   sun.castShadow = true;
   sun.shadow.mapSize.set(4096, 4096);
@@ -26,7 +79,9 @@ export function setupLighting(): void {
   G.scene!.add(sun);
   G.sunLight = sun;
 
-  G.scene!.add(new THREE.HemisphereLight(0x8dd9ff, 0x3e6842, legacyLightIntensity(0.45)));
+  hemiLight = mkHemisphereLight(0x9fceff, 0x4a6444, 0.34);
+  G.scene!.add(hemiLight);
+  updateCelLightDir(sun.position.clone().normalize());
 }
 
 /** Keep shadow camera centered on the player for sharper nearby shadows */
@@ -83,36 +138,91 @@ const GodRayShader = {
   `,
 };
 
-let godRayPass: ShaderPass | null = null;
+type ComposerLike = {
+  addPass: (pass: unknown) => void;
+  render: () => void;
+  setSize: (width: number, height: number) => void;
+  passes?: Array<{ enabled?: boolean; userData?: Record<string, unknown> }>;
+};
 
-export function setupPostProcessing(): void {
+type ShaderPassLike = {
+  uniforms: {
+    uSunScreen: { value: THREE.Vector2 };
+    uIntensity: { value: number };
+  };
+  userData?: Record<string, unknown>;
+};
+
+let godRayPass: ShaderPassLike | null = null;
+let postProcessingLoadPromise: Promise<void> | null = null;
+
+export function setupPostProcessing(): Promise<void> {
+  if (postProcessingLoadPromise) return postProcessingLoadPromise;
+
   G.rend!.toneMapping = THREE.ACESFilmicToneMapping;
-  G.rend!.toneMappingExposure = 1.1;
+  G.rend!.toneMappingExposure = lightingDebug.exposure;
 
-  const composer = new EffectComposer(G.rend!);
-  composer.addPass(new RenderPass(G.scene!, G.cam!));
+  postProcessingLoadPromise = Promise.all([
+    import('three/examples/jsm/postprocessing/EffectComposer.js'),
+    import('three/examples/jsm/postprocessing/RenderPass.js'),
+    import('three/examples/jsm/postprocessing/UnrealBloomPass.js'),
+    import('three/examples/jsm/postprocessing/ShaderPass.js'),
+    import('three/examples/jsm/postprocessing/SSAOPass.js'),
+    import('three/examples/jsm/shaders/GammaCorrectionShader.js'),
+  ]).then(([
+    effectComposerMod,
+    renderPassMod,
+    bloomPassMod,
+    shaderPassMod,
+    ssaoPassMod,
+    gammaCorrectionMod,
+  ]) => {
+    if (!G.rend || !G.scene || !G.cam) return;
 
-  /* SSAO — subtle ambient occlusion for ground-contact darkening */
-  const ssao = new SSAOPass(G.scene!, G.cam!, innerWidth, innerHeight);
-  ssao.kernelRadius = 12;
-  ssao.minDistance = 0.002;
-  ssao.maxDistance = 0.15;
-  (ssao as any).output = SSAOPass.OUTPUT.Default;
-  composer.addPass(ssao);
+    const composer = new effectComposerMod.EffectComposer(G.rend!) as ComposerLike;
+    composer.addPass(new renderPassMod.RenderPass(G.scene!, G.cam!));
 
-  const bloom = new UnrealBloomPass(
-    new THREE.Vector2(innerWidth, innerHeight),
-    0.35,  // strength
-    0.6,   // radius
-    0.7,   // threshold
-  );
-  composer.addPass(bloom);
+    const ssao = new ssaoPassMod.SSAOPass(G.scene!, G.cam!, innerWidth, innerHeight) as {
+      kernelRadius: number;
+      minDistance: number;
+      maxDistance: number;
+      output: unknown;
+      enabled?: boolean;
+      userData?: Record<string, unknown>;
+    };
+    ssao.kernelRadius = 12;
+    ssao.minDistance = 0.002;
+    ssao.maxDistance = 0.15;
+    ssao.output = (ssaoPassMod.SSAOPass as any).OUTPUT.Default;
+    ssao.enabled = settings.ssao;
+    ssao.userData = { ...(ssao.userData || {}), passType: 'ssao' };
+    composer.addPass(ssao);
 
-  /* God rays pass */
-  godRayPass = new ShaderPass(GodRayShader);
-  composer.addPass(godRayPass);
+    const bloom = new bloomPassMod.UnrealBloomPass(
+      new THREE.Vector2(innerWidth, innerHeight),
+      0.35,
+      0.6,
+      0.7,
+    ) as { enabled?: boolean; userData?: Record<string, unknown> };
+    bloom.enabled = settings.bloom;
+    bloom.userData = { ...(bloom.userData || {}), passType: 'bloom' };
+    composer.addPass(bloom);
 
-  G.composer = composer;
+    godRayPass = new shaderPassMod.ShaderPass(GodRayShader) as unknown as ShaderPassLike;
+    godRayPass.userData = { ...(godRayPass.userData || {}), passType: 'godRays' };
+    composer.addPass(godRayPass);
+
+    /* Gamma correction pass — required for pre-r153 Three.js with EffectComposer.
+       The EffectComposer's render targets use LinearEncoding, so MeshPhongMaterial
+       (from FBXLoader) outputs linear values that need sRGB conversion for correct
+       brightness on screen. */
+    const gammaPass = new shaderPassMod.ShaderPass(gammaCorrectionMod.GammaCorrectionShader);
+    composer.addPass(gammaPass);
+
+    G.composer = composer as never;
+  });
+
+  return postProcessingLoadPromise;
 }
 
 /** Call each frame to update god-ray sun screen position and intensity */
@@ -200,9 +310,9 @@ export function buildSkyDome(): void {
     side: THREE.BackSide,
     depthWrite: false,
     uniforms: {
-      uZenith: { value: new THREE.Color(0x4488cc) },
-      uHorizon: { value: new THREE.Color(0x83b7de) },
-      uGround: { value: new THREE.Color(0x3e6842) },
+      uZenith: { value: new THREE.Color(0x4b88c8) },
+      uHorizon: { value: new THREE.Color(0x92c7ea) },
+      uGround: { value: new THREE.Color(0x36533b) },
       uSunDir: { value: new THREE.Vector3(0.5, 0.7, 0.3).normalize() },
       uSunColor: { value: new THREE.Color(0xfff4e1) },
     },
@@ -213,8 +323,13 @@ export function buildSkyDome(): void {
 }
 
 export function updateDayNight(dt: number): void {
-  G.dayTime += dt * 0.008;
-  if (G.dayTime > 1) G.dayTime -= 1;
+  if (lightingDebug.freezeTime) {
+    G.dayTime = lightingDebug.timeOfDay;
+  } else {
+    G.dayTime += dt * 0.008;
+    if (G.dayTime > 1) G.dayTime -= 1;
+    lightingDebug.timeOfDay = G.dayTime;
+  }
   const t = G.dayTime;
 
   G.sunLight!.position.set(
@@ -222,56 +337,59 @@ export function updateDayNight(dt: number): void {
     Math.sin(t * Math.PI * 2) * 150,
     60,
   );
-  updateCelLightDir(G.sunLight!.position.clone().normalize());
+  const sunDir = G.sunLight!.position.clone().normalize();
+  updateCelLightDir(sunDir);
 
-  const dc = new THREE.Color(0x83b7de);
-  const dk = new THREE.Color(0xd4774a);
-  const nc = new THREE.Color(0x0a1628);
+  const sunHeight = G.sunLight!.position.y / 150;
+  const daylight = clamp01((sunHeight + 0.18) / 0.88);
+  const nightFactor = clamp01((-sunHeight - 0.02) / 0.72);
+  const twilight = clamp01(1.0 - Math.abs(sunHeight) / 0.42) * (1.0 - nightFactor * 0.35);
 
-  let sc: THREE.Color;
-  if (t < 0.2) sc = dc;
-  else if (t < 0.3) sc = dc.clone().lerp(dk, (t - 0.2) * 10);
-  else if (t < 0.4) sc = dk.clone().lerp(nc, (t - 0.3) * 10);
-  else if (t < 0.7) sc = nc;
-  else if (t < 0.8) sc = nc.clone().lerp(dk, (t - 0.7) * 10);
-  else sc = dk.clone().lerp(dc, (t - 0.8) * 5);
-
+  const fogDay = new THREE.Color(0x92c7ea);
+  const fogTwilight = new THREE.Color(0x6d678c);
+  const fogNight = new THREE.Color(0x08121d);
+  const sc = fogDay.clone().lerp(fogTwilight, twilight).lerp(fogNight, nightFactor);
   G.scene!.fog!.color.copy(sc);
+  if (G.scene!.fog instanceof THREE.FogExp2) {
+    G.scene!.fog.density = 0.008 * (0.9 + nightFactor * 0.35) * lightingDebug.fogScale;
+  }
+  G.scene!.background = sc.clone();
 
-  const isN = t > 0.5;
-  G.sunLight!.intensity = legacyLightIntensity(
-    isN
-      ? Math.max(0.15, 1 - Math.min(1, (t - 0.5) * 4) * 0.85)
-      : 1.25,
-  );
-  G.sunLight!.color.set(
-    isN ? 0x8899cc : t > 0.2 && t < 0.4 ? 0xffaa66 : 0xfff4e1,
-  );
+  const sunDay = new THREE.Color(0xfff2dd);
+  const sunTwilight = new THREE.Color(0xffb37a);
+  const sunNight = new THREE.Color(0x6f84b8);
+  G.sunLight!.color.copy(sunDay.clone().lerp(sunTwilight, twilight).lerp(sunNight, nightFactor));
+  G.sunLight!.intensity = (0.12 + daylight * 1.12 + twilight * 0.08) * lightingDebug.sunScale;
+
+  if (ambientLight) {
+    ambientLight.color.copy(new THREE.Color(0xffffff).lerp(new THREE.Color(0x91a6d2), nightFactor * 0.5));
+    ambientLight.intensity = (0.18 + daylight * 0.16 + nightFactor * 0.06) * lightingDebug.ambientScale;
+  }
+
+  if (hemiLight) {
+    hemiLight.color.copy(new THREE.Color(0xa8d8ff).lerp(new THREE.Color(0x314a72), nightFactor));
+    hemiLight.groundColor.copy(new THREE.Color(0x486447).lerp(new THREE.Color(0x0f1d1d), nightFactor));
+    hemiLight.intensity = (0.16 + daylight * 0.22 + twilight * 0.04) * lightingDebug.hemiScale;
+  }
 
   /* ── Update sky dome ── */
   if (G.skyDome) {
     const mat = G.skyDome.material as THREE.ShaderMaterial;
-    const sunDir = G.sunLight!.position.clone().normalize();
     mat.uniforms.uSunDir.value.copy(sunDir);
 
-    // Zenith: deep blue day → dark night
-    const zenithDay = new THREE.Color(0x4488cc);
-    const zenithDusk = new THREE.Color(0x663355);
-    const zenithNight = new THREE.Color(0x050a18);
+    const zenithDay = new THREE.Color(0x4e8ed2);
+    const zenithTwilight = new THREE.Color(0x4e4673);
+    const zenithNight = new THREE.Color(0x040a14);
+    const horizonDay = new THREE.Color(0xa8d7f4);
+    const horizonTwilight = new THREE.Color(0x7c719a);
+    const horizonNight = new THREE.Color(0x0b1625);
+    const groundDay = new THREE.Color(0x39543c);
+    const groundNight = new THREE.Color(0x0b1614);
 
-    let zenith: THREE.Color;
-    if (t < 0.2) zenith = zenithDay;
-    else if (t < 0.3) zenith = zenithDay.clone().lerp(zenithDusk, (t - 0.2) * 10);
-    else if (t < 0.4) zenith = zenithDusk.clone().lerp(zenithNight, (t - 0.3) * 10);
-    else if (t < 0.7) zenith = zenithNight;
-    else if (t < 0.8) zenith = zenithNight.clone().lerp(zenithDusk, (t - 0.7) * 10);
-    else zenith = zenithDusk.clone().lerp(zenithDay, (t - 0.8) * 5);
-
-    mat.uniforms.uZenith.value.copy(zenith);
-    mat.uniforms.uHorizon.value.copy(sc);
-    mat.uniforms.uSunColor.value.set(
-      isN ? 0x556688 : t > 0.2 && t < 0.4 ? 0xff8844 : 0xfff4e1,
-    );
+    mat.uniforms.uZenith.value.copy(zenithDay.clone().lerp(zenithTwilight, twilight).lerp(zenithNight, nightFactor));
+    mat.uniforms.uHorizon.value.copy(horizonDay.clone().lerp(horizonTwilight, twilight).lerp(horizonNight, nightFactor));
+    mat.uniforms.uGround.value.copy(groundDay.clone().lerp(groundNight, nightFactor));
+    mat.uniforms.uSunColor.value.copy(sunDay.clone().lerp(sunTwilight, twilight).lerp(sunNight, nightFactor));
 
     // Follow camera so it never clips
     if (G.cam) G.skyDome.position.copy(G.cam.position);

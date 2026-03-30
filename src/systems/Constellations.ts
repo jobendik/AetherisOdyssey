@@ -1,5 +1,4 @@
 import { G } from '../core/GameState';
-import { PARTY } from '../data/PartyData';
 import { SFX } from '../audio/Audio';
 
 /* ═══════════════════════════════════════════════════════════
@@ -121,82 +120,6 @@ export function getConstellationBonuses(partyIdx: number): {
   return r;
 }
 
-/* ─── UI Panel ─── */
-let panel: HTMLElement | null = null;
-
-export function toggleConstellationPanel(): void {
-  if (panel) { closePanel(); return; }
-  openPanel();
-}
-
-function openPanel(): void {
-  SFX.menuOpen();
-  G.isActive = false;
-  if (!G.mobile && document.pointerLockElement) document.exitPointerLock();
-  panel = document.createElement('div');
-  panel.id = 'constOverlay';
-  renderUI();
-  document.body.appendChild(panel);
-}
-
-function closePanel(): void {
-  if (!panel) return;
-  SFX.menuClose();
-  panel.remove();
-  panel = null;
-  if (G.hasStarted && G.health > 0) {
-    if (G.mobile) G.isActive = true;
-    else document.body.requestPointerLock();
-  }
-}
-
-function renderUI(): void {
-  if (!panel) return;
-  const idx = G.activeIdx;
-  const m = PARTY[idx];
-  const lv = constellationLevels[idx];
-  const sf = stellaFortuna[idx];
-  const tree = CONSTELLATIONS[idx];
-
-  const tabs = PARTY.map((p, i) =>
-    `<button class="constTab ${i === idx ? 'constTabActive' : ''}" data-idx="${i}" style="--accent:${p.accent}">${p.portrait} ${p.name}</button>`
-  ).join('');
-
-  const nodes = tree.map((c, ci) => {
-    const unlocked = ci < lv;
-    return `<div class="constNode ${unlocked ? 'constUnlocked' : 'constLocked'}">
-      <div class="constIcon">${c.icon}</div>
-      <div class="constInfo">
-        <div class="constName">C${ci + 1}: ${c.name}</div>
-        <div class="constDesc">${c.desc}</div>
-      </div>
-      <div class="constStatus">${unlocked ? '✓' : '🔒'}</div>
-    </div>`;
-  }).join('');
-
-  const canUnlock = lv < 6 && sf >= 1;
-
-  panel.innerHTML = `
-    <div class="constHeader"><div class="constTitle">CONSTELLATIONS</div><button id="constClose">✕ Close</button></div>
-    <div class="constTabs">${tabs}</div>
-    <div class="constBody">
-      <div class="constStellaInfo">Stella Fortuna: ${sf} ${canUnlock ? `<button class="constUnlockBtn" id="constUnlock">Unlock C${lv + 1}</button>` : lv >= 6 ? '(MAX)' : '(Need Stella Fortuna)'}</div>
-      ${nodes}
-    </div>
-  `;
-
-  panel.querySelector('#constClose')?.addEventListener('click', closePanel);
-  panel.querySelectorAll('.constTab').forEach(btn => {
-    btn.addEventListener('click', () => {
-      G.activeIdx = parseInt((btn as HTMLElement).dataset.idx!, 10);
-      renderUI();
-    });
-  });
-  panel.querySelector('#constUnlock')?.addEventListener('click', () => {
-    if (unlockConstellation(idx)) renderUI();
-  });
-}
-
-export function isConstellationPanelOpen(): boolean {
-  return panel !== null;
+export function getConstellationTree(partyIdx: number): Constellation[] {
+  return CONSTELLATIONS[partyIdx] ?? [];
 }

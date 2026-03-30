@@ -1,5 +1,4 @@
-import { G, mem } from '../core/GameState';
-import { PARTY } from '../data/PartyData';
+import { G } from '../core/GameState';
 import { SFX } from '../audio/Audio';
 
 /* ──── Talent definitions ──── */
@@ -91,83 +90,6 @@ export function getTalentBonuses(partyIdx: number): {
   };
 }
 
-/* ──── UI Panel ──── */
-let panel: HTMLElement | null = null;
-
-export function toggleTalentPanel(): void {
-  if (panel) { closeTalentPanel(); return; }
-  openTalentPanel();
-}
-
-function openTalentPanel(): void {
-  SFX.menuOpen();
-  G.isActive = false;
-  if (!G.mobile && document.pointerLockElement) document.exitPointerLock();
-  panel = document.createElement('div');
-  panel.id = 'talentOverlay';
-  renderTalentUI();
-  document.body.appendChild(panel);
-}
-
-function closeTalentPanel(): void {
-  if (!panel) return;
-  SFX.menuClose();
-  panel.remove();
-  panel = null;
-  if (G.hasStarted && G.health > 0) {
-    if (G.mobile) G.isActive = true;
-    else document.body.requestPointerLock();
-  }
-}
-
-function renderTalentUI(): void {
-  if (!panel) return;
-  const idx = G.activeIdx;
-  const m = PARTY[idx];
-  const tree = TALENTS[idx];
-  const state = talentStates[idx];
-
-  const tabs = PARTY.map((p, i) =>
-    `<button class="tlTab ${i === idx ? 'tlTabActive' : ''}" data-idx="${i}" style="--accent:${p.accent}">${p.portrait} ${p.name}</button>`
-  ).join('');
-
-  const rows = tree.map(t => {
-    const rank = state.ranks[t.id] ?? 0;
-    const maxed = rank >= t.maxRank;
-    const canUp = !maxed && G.lv >= t.lvReq && G.mora >= t.cost;
-    return `<div class="tlRow ${maxed ? 'tlMaxed' : ''}">
-      <div class="tlIcon">${t.icon}</div>
-      <div class="tlInfo">
-        <div class="tlName">${t.name} <span class="tlRank">${rank}/${t.maxRank}</span></div>
-        <div class="tlDesc">${t.desc}</div>
-        <div class="tlReq">Lv.${t.lvReq} · ${t.cost} Mora</div>
-      </div>
-      <button class="tlUpBtn ${canUp ? '' : 'tlDisabled'}" data-tid="${t.id}">${maxed ? 'MAX' : '↑'}</button>
-    </div>`;
-  }).join('');
-
-  panel.innerHTML = `
-    <div class="tlHeader"><div class="tlTitle">TALENTS</div><button id="tlClose">✕ Close</button></div>
-    <div class="tlTabs">${tabs}</div>
-    <div class="tlBody">${rows}</div>
-  `;
-
-  panel.querySelector('#tlClose')?.addEventListener('click', closeTalentPanel);
-  panel.querySelectorAll('.tlTab').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const i = parseInt((btn as HTMLElement).dataset.idx!, 10);
-      G.activeIdx = i;
-      renderTalentUI();
-    });
-  });
-  panel.querySelectorAll('.tlUpBtn:not(.tlDisabled)').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const tid = (btn as HTMLElement).dataset.tid!;
-      if (upgradeTalent(idx, tid)) renderTalentUI();
-    });
-  });
-}
-
-export function isTalentPanelOpen(): boolean {
-  return panel !== null;
+export function getTalentTree(partyIdx: number): Talent[] {
+  return TALENTS[partyIdx] ?? [];
 }

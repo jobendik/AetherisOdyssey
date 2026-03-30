@@ -18,6 +18,7 @@ const terrainVertexShader = /* glsl */ `
 
 const terrainFragmentShader = /* glsl */ `
   uniform float uTime;
+  uniform vec3 uLightDir;
   varying vec3 vWorldPos;
   varying vec3 vNormal;
   varying float vSlope;
@@ -46,7 +47,7 @@ const terrainFragmentShader = /* glsl */ `
     col = mix(col, snow, smoothstep(16.0, 22.0, h) * 0.3 * (1.0 - vSlope));
 
     /* Smooth cel-shading: 3 bands */
-    float NdotL = dot(vNormal, normalize(vec3(1.0, 1.5, 0.5)));
+    float NdotL = dot(vNormal, normalize(uLightDir));
     float shade = smoothstep(-0.1, 0.05, NdotL) * 0.3 + 0.7;
     shade = floor(shade * 3.0 + 0.5) / 3.0;
 
@@ -75,7 +76,7 @@ const terrainFragmentShader = /* glsl */ `
 export function buildTerrain(): void {
   const tGeo = new THREE.PlaneGeometry(300, 300, 200, 200);
   tGeo.rotateX(-Math.PI / 2);
-  const pos = tGeo.attributes.position;
+  const pos = tGeo.attributes.position as THREE.BufferAttribute;
   for (let i = 0; i < pos.count; i++) {
     pos.setY(i, wH(pos.getX(i), pos.getZ(i)));
   }
@@ -86,6 +87,7 @@ export function buildTerrain(): void {
     fragmentShader: terrainFragmentShader,
     uniforms: {
       uTime: { value: 0 },
+      uLightDir: { value: new THREE.Vector3(1, 1.5, 0.5).normalize() },
     },
   });
 
@@ -184,7 +186,7 @@ function buildDistantMountains(): void {
     /* Main mountain cone */
     const geo = new THREE.ConeGeometry(width, height, 5 + Math.floor(Math.random() * 3));
     // Slightly randomize vertices for a natural look
-    const vPos = geo.attributes.position;
+    const vPos = geo.attributes.position as THREE.BufferAttribute;
     for (let v = 0; v < vPos.count; v++) {
       const y = vPos.getY(v);
       if (y < height * 0.45) {
@@ -220,5 +222,8 @@ function buildDistantMountains(): void {
 export function updateTerrain(): void {
   if (!G.terrain) return;
   const mat = G.terrain.material as THREE.ShaderMaterial;
-  if (mat.uniforms) mat.uniforms.uTime.value = G.worldTime;
+  if (mat.uniforms) {
+    mat.uniforms.uTime.value = G.worldTime;
+    if (G.sunLight) mat.uniforms.uLightDir.value.copy(G.sunLight.position).normalize();
+  }
 }

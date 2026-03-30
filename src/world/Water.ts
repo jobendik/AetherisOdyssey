@@ -3,10 +3,12 @@ import { G } from '../core/GameState';
 
 /* ──── Reflection render target ──── */
 const REFL_SIZE = 512;
+const REFL_UPDATE_INTERVAL = 1 / 20;
 let reflTarget: THREE.WebGLRenderTarget | null = null;
 const reflCamera = new THREE.PerspectiveCamera();
 const reflPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 3); // y = -3 → normal up, constant 3
 const clipPlane = new THREE.Vector4(0, 1, 0, 3);
+let lastReflectionTime = -Infinity;
 
 const waterVertexShader = /* glsl */ `
   uniform float uTime;
@@ -53,6 +55,7 @@ const waterFragmentShader = /* glsl */ `
   uniform vec3 uShallowColor;
   uniform vec3 uFoamColor;
   uniform vec3 uPlayerPos;
+  uniform vec3 uLightDir;
   uniform sampler2D uReflection;
 
   varying vec3 vWorldPos;
@@ -76,7 +79,7 @@ const waterFragmentShader = /* glsl */ `
     float baseAlpha = mix(0.45, 0.88, depth);
 
     /* Specular highlight */
-    vec3 lightDir = normalize(vec3(1.0, 1.5, 0.5));
+    vec3 lightDir = normalize(uLightDir);
     vec3 halfDir = normalize(lightDir + vViewDir);
     float spec = pow(max(dot(vNormal, halfDir), 0.0), 80.0) * 1.2;
 
@@ -128,6 +131,7 @@ export function buildWater(): void {
       uShallowColor: { value: new THREE.Color(0x2d88d1) },
       uFoamColor: { value: new THREE.Color(0xddeeff) },
       uPlayerPos: { value: new THREE.Vector3() },
+      uLightDir: { value: new THREE.Vector3(1, 1.5, 0.5).normalize() },
       uReflection: { value: reflTarget.texture },
     },
     transparent: true,
@@ -140,9 +144,14 @@ export function buildWater(): void {
   G.scene!.add(G.water);
 }
 
+/* Cached vector for water reflection to avoid per-frame allocations */
+const _waterCamDir = new THREE.Vector3();
+
 /** Render the reflection pass — call before the main render each frame */
 export function renderWaterReflection(): void {
   if (!reflTarget || !G.water || !G.cam || !G.rend || !G.scene) return;
+  if (G.worldTime - lastReflectionTime < REFL_UPDATE_INTERVAL) return;
+  lastReflectionTime = G.worldTime;
 
   /* Copy camera */
   reflCamera.copy(G.cam);
@@ -153,10 +162,11 @@ export function renderWaterReflection(): void {
   const waterY = -3;
   reflCamera.position.y = 2 * waterY - reflCamera.position.y;
   reflCamera.up.set(0, -1, 0);
+  G.cam.getWorldDirection(_waterCamDir);
   reflCamera.lookAt(
-    reflCamera.position.x + G.cam.getWorldDirection(new THREE.Vector3()).x,
-    reflCamera.position.y - G.cam.getWorldDirection(new THREE.Vector3()).y,
-    reflCamera.position.z + G.cam.getWorldDirection(new THREE.Vector3()).z,
+    reflCamera.position.x + _waterCamDir.x,
+    reflCamera.position.y - _waterCamDir.y,
+    reflCamera.position.z + _waterCamDir.z,
   );
   reflCamera.updateProjectionMatrix();
   reflCamera.updateMatrixWorld();
@@ -183,5 +193,6 @@ export function updateWater(): void {
   if (mat.uniforms) {
     mat.uniforms.uTime.value = G.worldTime;
     if (G.player) mat.uniforms.uPlayerPos.value.copy(G.player.position);
+    if (G.sunLight) mat.uniforms.uLightDir.value.copy(G.sunLight.position).normalize();
   }
 }

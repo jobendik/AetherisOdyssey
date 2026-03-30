@@ -146,9 +146,11 @@ export function renderInv(): void {
       const id = (el as HTMLElement).dataset.id!;
       if (t === 'weapon') {
         inv.equippedWeapon = id;
+        saveMem();
         renderInv();
       } else if (t === 'artifact') {
         inv.equippedArtifact = inv.equippedArtifact === id ? null : id;
+        saveMem();
         renderInv();
       } else if (t === 'food') {
         const f = getF(id);

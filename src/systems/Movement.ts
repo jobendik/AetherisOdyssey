@@ -6,6 +6,10 @@ import { SFX } from '../audio/Audio';
 import { spawnParts } from './Particles';
 import { plungeLand } from '../combat/Attack';
 
+/* Cached vectors to avoid per-frame allocations */
+const _UP = new THREE.Vector3(0, 1, 0);
+const _nextPos = new THREE.Vector3();
+
 /* ──── Dodge afterimage helpers ──── */
 function spawnAfterimage(): void {
   if (!G.playerModel) return;
@@ -31,10 +35,11 @@ function spawnAfterimage(): void {
   const startTime = G.worldTime;
   const life = 0.35;
   G.entities.particles.push({
-    mesh: wrapper as unknown as THREE.Mesh,
+    mesh: wrapper,
     life,
     vel: new THREE.Vector3(),
     ring: false,
+    cleanup: 'afterimage',
     afterimage: true,
     startTime,
   } as any);
@@ -42,11 +47,11 @@ function spawnAfterimage(): void {
 
 export function updateMovement(dt: number): void {
   if (G.isDashing) {
-    const nx = G.player!.position.clone().addScaledVector(G.pVel, dt);
-    resolveTreeCol(nx);
-    resolveSpawnCol(nx);
-    resolveGroundCol(nx);
-    G.player!.position.copy(nx);
+    _nextPos.copy(G.player!.position).addScaledVector(G.pVel, dt);
+    resolveTreeCol(_nextPos);
+    resolveSpawnCol(_nextPos);
+    resolveGroundCol(_nextPos);
+    G.player!.position.copy(_nextPos);
     return;
   }
 
@@ -116,11 +121,11 @@ export function updateMovement(dt: number): void {
     else if (!inU) G.pVel.y -= GRAV * dt;
   }
 
-  const nx = G.player!.position.clone().addScaledVector(G.pVel, dt);
-  resolveTreeCol(nx);
-  resolveSpawnCol(nx);
-  resolveGroundCol(nx);
-  G.player!.position.copy(nx);
+  _nextPos.copy(G.player!.position).addScaledVector(G.pVel, dt);
+  resolveTreeCol(_nextPos);
+  resolveSpawnCol(_nextPos);
+  resolveGroundCol(_nextPos);
+  G.player!.position.copy(_nextPos);
 }
 
 function resolveTreeCol(nx: THREE.Vector3): void {
@@ -381,24 +386,24 @@ function updateSwimming(dt: number): void {
   G.pVel.z = lerp(G.pVel.z, mv.z * swimSpd, dt * 8);
   G.pVel.y = 0;
 
-  const nx = G.player.position.clone().addScaledVector(G.pVel, dt);
-  resolveTreeCol(nx);
-  resolveSpawnCol(nx);
+  _nextPos.copy(G.player.position).addScaledVector(G.pVel, dt);
+  resolveTreeCol(_nextPos);
+  resolveSpawnCol(_nextPos);
 
   /* Keep at water surface with gentle bobbing */
-  nx.y = SWIM_SURFACE_Y + Math.sin(G.worldTime * 2.4) * 0.12;
+  _nextPos.y = SWIM_SURFACE_Y + Math.sin(G.worldTime * 2.4) * 0.12;
 
   /* Check if we've reached shore (ground above water) */
-  const g = wH(nx.x, nx.z);
+  const g = wH(_nextPos.x, _nextPos.z);
   if (g >= WATER_Y) {
     /* Exit swimming — walk onto land */
     G.isSwimming = false;
-    nx.y = g;
+    _nextPos.y = g;
     G.pVel.y = 0;
     G.isGrounded = true;
   }
 
-  G.player.position.copy(nx);
+  G.player.position.copy(_nextPos);
 
   /* Face movement direction */
   if (mv.lengthSq() > 0.01 && G.playerModel) {

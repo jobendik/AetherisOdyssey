@@ -31,10 +31,19 @@ export function updatePerfHud(): void {
   const tris = info.render.triangles;
   const tex = info.memory.textures;
   const geom = info.memory.geometries;
+  const startup = G.startupMetrics;
+  const frame = G.frameMetrics;
+  const fmtMs = (value: number | null): string => value === null ? '--' : `${Math.round(value)}ms`;
+  const fmtFrameMs = (value: number): string => `${value.toFixed(1)}ms`;
 
   hudEl.innerHTML =
     `FPS: ${fps}<br>` +
     `Draw: ${calls}<br>` +
     `Tris: ${(tris / 1000).toFixed(1)}k<br>` +
-    `Tex: ${tex} · Geo: ${geom}`;
+    `Tex: ${tex} · Geo: ${geom}<br>` +
+    `Upd: ${fmtFrameMs(frame.updateMs)} · Ren: ${fmtFrameMs(frame.renderMs)}<br>` +
+    `Enemy: ${fmtFrameMs(frame.enemyMs)} · Part: ${fmtFrameMs(frame.particleMs)}<br>` +
+    `Mini: ${fmtFrameMs(frame.minimapMs)} · Refl: ${fmtFrameMs(frame.reflectionMs)}<br>` +
+    `UI: ${fmtMs(startup.uiReadyAt)} · World: ${fmtMs(startup.worldReadyAt)}<br>` +
+    `1st Frame: ${fmtMs(startup.firstFrameAt)} · FX: ${fmtMs(startup.composerReadyAt)}`;
 }

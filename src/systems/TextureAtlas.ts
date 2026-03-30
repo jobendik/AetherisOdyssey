@@ -32,7 +32,7 @@ function ensureAtlas(): void {
   atlasTexture = new THREE.CanvasTexture(atlasCanvas);
   atlasTexture.magFilter = THREE.NearestFilter;
   atlasTexture.minFilter = THREE.NearestMipMapLinearFilter;
-  atlasTexture.colorSpace = THREE.SRGBColorSpace;
+  atlasTexture.encoding = THREE.sRGBEncoding;
 }
 
 /** Register a solid-color tile in the atlas.  Returns UV region. */

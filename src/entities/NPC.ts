@@ -1,17 +1,20 @@
 import * as THREE from 'three';
 import { G } from '../core/GameState';
-import { mkMesh } from '../core/Helpers';
 
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 
-export function buildGuideNPC(): void {
+let npcLoadPromise: Promise<void> | null = null;
+
+export async function buildGuideNPC(): Promise<void> {
+  if (npcLoadPromise) return npcLoadPromise;
+
   G.npc = new THREE.Group();
   G.npc.position.set(3.2, 2.05, -3.2);
   G.npc.rotation.y = -Math.PI / 4;
   G.scene!.add(G.npc);
 
   const loader = new FBXLoader();
-  Promise.all([
+  npcLoadPromise = Promise.all([
     loader.loadAsync('/models/characters/npc/Maria WProp J J Ong.fbx'),
     loader.loadAsync('/models/characters/npc/Neutral Idle.fbx'),
     loader.loadAsync('/models/characters/npc/Talking.fbx'),
@@ -24,7 +27,6 @@ export function buildGuideNPC(): void {
       }
     });
 
-    // Remove any fallback procedural meshes if created
     while (G.npc!.children.length > 0) G.npc!.remove(G.npc!.children[0]);
     G.npc!.add(mesh);
 
@@ -36,7 +38,11 @@ export function buildGuideNPC(): void {
     };
     G.npc!.userData.currentAnim = 'idle';
     G.npc!.userData.actions.idle.play();
-  }).catch(e => console.error("NPC load failed: ", e));
+  }).catch(e => {
+    console.error('NPC load failed: ', e);
+  });
+
+  return npcLoadPromise;
 }
 
 export function updateNPC(dt: number): void {

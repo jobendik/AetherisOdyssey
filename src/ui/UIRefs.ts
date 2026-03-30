@@ -7,6 +7,7 @@ export const ui: UIElements = {} as UIElements;
 export function initUI(): void {
   const ids = [
     'startScreen', 'deathScreen', 'startBtn', 'respawnBtn', 'damageOverlay',
+    'loadingStatus', 'loadingPercent', 'loadingBarFill',
     'burstFlash', 'lowHealthVignette', 'switchFlash',
     'objectiveText', 'objectiveSubtext',
     'targetInfo', 'targetName', 'targetLevel', 'targetBarFill',

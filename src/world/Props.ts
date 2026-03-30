@@ -101,13 +101,13 @@ export function breakProp(prop: DestructibleProp): void {
 }
 
 export function updateProps(): void {
-  if (!G.player) return;
+  if (!G.player || G.atkTimer <= 0) return;
+  const px = G.player.position.x, py = G.player.position.y, pz = G.player.position.z;
   for (const prop of G.entities.props) {
     if (prop.broken) continue;
-    /* Break if player attacks nearby (during attack animation) */
-    if (G.atkTimer > 0) {
-      const d = G.player.position.distanceTo(prop.mesh.position);
-      if (d < 2.5) breakProp(prop);
-    }
+    const dx = px - prop.mesh.position.x;
+    const dy = py - prop.mesh.position.y;
+    const dz = pz - prop.mesh.position.z;
+    if (dx * dx + dy * dy + dz * dz < 6.25) breakProp(prop);
   }
 }

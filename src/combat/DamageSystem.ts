@@ -18,6 +18,26 @@ import { onEnemyKilled } from '../systems/Commissions';
 import { onSideQuestKill } from '../systems/SideQuests';
 import type { EnemyEntity, ElementType } from '../types';
 
+const DEAD_ENEMY_CLEANUP_DELAY_MS = 2000;
+const MAX_ACTIVE_NON_BOSS_ENEMIES = 28;
+const _dmgOffset = new THREE.Vector3();
+
+function removeEnemyFromSimulation(enemy: EnemyEntity): void {
+  if (G.target === enemy) G.target = null;
+  if (G.lockOnTarget === enemy) G.lockOnTarget = null;
+  if (G.bossEntity === enemy) G.bossEntity = null;
+
+  enemy.mixer?.stopAllAction();
+
+  const arr = G.entities.slimes;
+  const idx = arr.indexOf(enemy);
+  if (idx >= 0) {
+    arr[idx] = arr[arr.length - 1];
+    arr.pop();
+  }
+  if (enemy.mesh.parent) enemy.mesh.parent.remove(enemy.mesh);
+}
+
 export function trigShake(i = 0.3, d = 0.15): void {
   /* Only upgrade — never downgrade an ongoing stronger shake */
   if (i > G.screenShake) {
@@ -57,19 +77,20 @@ export function dmgEnemy(
   G.combatTimer = 10;
   
   const d =
-    dir || s.mesh.position.clone().sub(G.player!.position).setY(0).normalize();
+    dir || _dmgOffset.copy(s.mesh.position).sub(G.player!.position).setY(0).normalize();
   if (Number.isFinite(d.x) && Number.isFinite(d.z)) {
     s.vel.x = d.x * kxz;
     s.vel.z = d.z * kxz;
   }
   s.vel.y = ky;
-  spawnParts(s.mesh.position.clone(), color, 14, 14);
+  const sp = s.mesh.position;
+  spawnParts(sp.clone(), color, 14, 14);
   spawnElementalHit(
-    s.mesh.position.clone().add(new THREE.Vector3(0, 1.2, 0)),
+    _dmgOffset.set(sp.x, sp.y + 1.2, sp.z),
     mem().element,
   );
   spawnDmg(
-    s.mesh.position.clone().add(new THREE.Vector3(0, 1.5, 0)),
+    _dmgOffset.set(sp.x, sp.y + 1.5, sp.z),
     amt,
     crit ? '#ffff44' : color,
     crit,
@@ -83,9 +104,11 @@ export function dmgEnemy(
   if (s.hp <= 0) {
     s.dead = true;
     setTimeout(() => {
+      if (!s.mesh.parent) return;
       s.mesh.visible = false;
       spawnParts(s.mesh.position.clone(), '#ff6b86', 28, 18);
-    }, 2000);
+      removeEnemyFromSimulation(s);
+    }, DEAD_ENEMY_CLEANUP_DELAY_MS);
     G.burstEnergy = clamp(G.burstEnergy + 20, 0, 100);
     G.enemiesKilled++;
     onEnemyKilled(!!s.isElite);
@@ -182,7 +205,13 @@ export function dmgEnemy(
         'wisp',
         'shield',
       ];
-      for (let i = 0; i < 4 + G.waveCount; i++) {
+      const activeNonBossEnemies = G.entities.slimes.reduce((count, enemy) => {
+        return count + (!enemy.dead && !enemy.isBoss ? 1 : 0);
+      }, 0);
+      const spawnBudget = Math.max(0, MAX_ACTIVE_NON_BOSS_ENEMIES - activeNonBossEnemies);
+      const reinforcements = Math.min(2 + Math.min(G.waveCount, 6), spawnBudget);
+
+      for (let i = 0; i < reinforcements; i++) {
         const pt = rwp(30, 100, 0);
         createEnemy(pt.x, pt.y, pt.z, archs[i % archs.length]);
       }

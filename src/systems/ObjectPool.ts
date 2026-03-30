@@ -40,6 +40,20 @@ export function releaseParticleMesh(m: THREE.Mesh): void {
   }
 }
 
+/** Pre-populate the particle pool so the first chest-open (or combat)
+ *  doesn't stall while creating dozens of meshes & compiling shaders. */
+export function warmParticlePool(count = 60): void {
+  const white = new THREE.Color(0xffffff);
+  for (let i = 0; i < count; i++) {
+    const m = new THREE.Mesh(
+      _boxGeo,
+      new THREE.MeshBasicMaterial({ color: white }),
+    );
+    m.visible = false;
+    meshPool.push(m);
+  }
+}
+
 /* ── Damage number DOM pool ── */
 const domPool: HTMLDivElement[] = [];
 const DOM_POOL_MAX = 60;

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { G, mem } from '../core/GameState';
-import { mkMesh, wH, mkCelMat, mkCelEmissiveMat, distXZ, legacyLightIntensity } from '../core/Helpers';
+import { mkMesh, mkPointLight, wH, mkCelMat, mkCelEmissiveMat, distXZ } from '../core/Helpers';
 import { SFX } from '../audio/Audio';
 import { spawnParts, spawnRing } from '../systems/Particles';
 import { ui } from '../ui/UIRefs';
@@ -15,7 +15,7 @@ import { gainXp } from '../systems/Progression';
 interface Torch {
   mesh: THREE.Group;
   flame: THREE.Mesh | null;
-  light: THREE.PointLight | null;
+  light: THREE.Sprite | null;
   lit: boolean;
   group: number; // puzzle group ID
 }
@@ -144,7 +144,7 @@ function lightTorch(t: Torch): void {
   t.flame = flame;
 
   /* Point light */
-  const light = new THREE.PointLight(0xff6622, legacyLightIntensity(1.2), 12);
+  const light = mkPointLight(0xff6622, 1.2, 12);
   light.position.set(0, 3.2, 0);
   t.mesh.add(light);
   t.light = light;
@@ -227,7 +227,7 @@ export function updatePuzzles(dt: number): void {
       t.flame.scale.x = t.flame.scale.z = 0.85 + Math.sin(G.worldTime * 6 + t.mesh.position.z) * 0.1;
     }
     if (t.light) {
-      t.light.intensity = 1.0 + Math.sin(G.worldTime * 7 + t.mesh.position.x * 2) * 0.3;
+      (t.light.material as THREE.SpriteMaterial).opacity = 0.4 + Math.sin(G.worldTime * 7 + t.mesh.position.x * 2) * 0.12;
     }
   }
 

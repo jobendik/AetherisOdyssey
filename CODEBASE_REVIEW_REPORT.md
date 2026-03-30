@@ -4,6 +4,27 @@ Date: 2026-03-29
 Project: Aetheris Odyssey / GenshinImpactClone
 Reviewer: GitHub Copilot
 
+## Progress Update
+
+Implemented after the initial review:
+
+- Lighting compatibility fixes for newer Three.js behavior, including legacy-equivalent light scaling, explicit sRGB output color space, and live sun-direction sync across custom shaders
+- Day/night palette retune plus an in-game lighting debug panel for time-of-day and exposure balancing
+- Particle lifecycle hardening so only pooled particle meshes return to the mesh pool, while transient rings, elemental hit meshes, and dash afterimages clean up through their own disposal paths
+- Waypoint overlay input fixes so desktop pointer lock is released on open, restored on close, and the overlay no longer fights gameplay input ownership
+- Character detail data fix so viewed party members render their own equipped items and derived stats instead of always showing the active character's loadout
+- Control-label cleanup so the player-facing `M` binding now consistently refers to the map
+- Secondary overlays now load on demand from input handlers, with UI-only talent, constellation, achievement, map, character-detail, and lighting panels split away from startup-critical code
+- Vite manual chunking now separates Three.js core and Three.js example modules from the application entry chunk, reducing the app startup chunk substantially
+- Post-processing setup now loads asynchronously, so the game can start rendering before Three.js example-module post effects finish loading
+- Startup timing instrumentation now records UI-ready, world-ready, first-frame, and post-processing-ready milestones in the performance HUD for real in-browser boot measurement
+- Dead enemies are now removed from the active simulation after their death presentation completes, instead of remaining in the enemy update list indefinitely
+- Reinforcement spawning is now capped by active enemy count so long sessions do not snowball into unbounded enemy simulation cost
+- Water reflection rendering is now throttled instead of performing a full extra scene render every frame
+- Elemental hit particles now reuse shared geometries and materials instead of allocating and disposing fresh Three.js assets on each hit
+- The minimap now caches its terrain background and only refreshes that expensive height-sampling layer after meaningful player movement
+- The performance HUD now reports smoothed frame costs for enemy updates, particles, minimap redraws, water reflection, full update, and render passes to support evidence-based profiling
+
 ## Scope
 
 This report covers:
@@ -48,18 +69,20 @@ The game already has strong feature density: elemental combat, multiple UI syste
 
 ### Build Observation
 
-The current production build emits a large main JavaScript asset of roughly 816.8 KB minified. That is a material risk for:
+The latest validated production build now emits a much smaller application entry chunk of roughly 194.0 KB minified, plus separate on-demand overlay chunks and two major vendor chunks: roughly 539.3 KB for Three.js core and 81.1 KB for Three.js example modules. Post-processing setup is also deferred so the scene can begin rendering before those example-module effects finish loading. That is a meaningful improvement, but browser-delivery risk remains because the rendering vendor payload is still large enough to materially affect:
 
 - mobile load times
 - parse/compile time in browser
 - lower-end laptop performance
 - first interaction latency
 
-This is not a correctness bug, but it is an engineering priority if the game is intended to feel polished in-browser.
+This is not a correctness bug, but it remains an engineering priority if the game is intended to feel polished in-browser. The center of gravity has shifted from app-code bloat toward rendering-vendor weight.
 
 ## Prioritized Findings
 
 ## 1. High Severity: Particle pool contract is unsafe and mixes incompatible object types
+
+Status: Addressed in the current workspace changes. Keep the regression and long-session validation items in the checklist.
 
 ### Why this matters
 
@@ -99,6 +122,8 @@ Split transient effects into separate lifecycles:
 
 ## 2. Medium Severity: Waypoint overlay flow conflicts with pointer lock and desktop input ownership
 
+Status: Addressed in the current workspace changes. Keep desktop and mobile overlay smoke testing in the checklist.
+
 ### Why this matters
 
 The UI flow for waypoints is internally inconsistent. The overlay can be opened through the pause menu, but the pause close path immediately requests pointer lock again on desktop.
@@ -129,6 +154,8 @@ Introduce a UI mode manager or at minimum a common overlay contract:
 - pause/menu/map/waypoint/settings/inventory should share one lifecycle pattern
 
 ## 3. Medium Severity: Character detail screen can show mixed data for the wrong character
+
+Status: Addressed in the current workspace changes by persisting per-character equipped items and computing viewed-character stats from that loadout.
 
 ### Why this matters
 
@@ -162,6 +189,8 @@ Either:
 - refactor stat calculation to accept a specific character snapshot and equipment loadout
 
 ## 4. Low Severity: Control labels are inconsistent with actual key bindings
+
+Status: Addressed in the current workspace changes.
 
 ### Why this matters
 
@@ -432,15 +461,15 @@ Use this checklist as the working execution plan.
 
 ## Correctness Fixes
 
-- [ ] Replace the shared particle list contract with typed effect categories
-- [ ] Remove afterimages from the mesh pool path
-- [ ] Ensure only pooled particle meshes are returned to `releaseParticleMesh`
-- [ ] Dispose non-pooled meshes and groups safely
+- [x] Replace the shared particle list contract with typed effect categories
+- [x] Remove afterimages from the mesh pool path
+- [x] Ensure only pooled particle meshes are returned to `releaseParticleMesh`
+- [x] Dispose non-pooled meshes and groups safely
 - [ ] Add a regression test path for repeated dash usage and effect expiry
-- [ ] Fix waypoint overlay desktop usability around pointer lock
-- [ ] Ensure overlay open/close state toggles `G.isActive` consistently
-- [ ] Fix character detail to show viewed-character data, not active-character data
-- [ ] Normalize map/waypoint labels across UI and actual controls
+- [x] Fix waypoint overlay desktop usability around pointer lock
+- [x] Ensure overlay open/close state toggles `G.isActive` consistently
+- [x] Fix character detail to show viewed-character data, not active-character data
+- [x] Normalize map/waypoint labels across UI and actual controls
 
 ## Refactor Tasks
 
@@ -453,7 +482,7 @@ Use this checklist as the working execution plan.
 
 ## Performance Tasks
 
-- [ ] Add dynamic imports for non-core overlays and menus
+- [x] Add dynamic imports for non-core overlays and menus
 - [ ] Measure startup cost before and after code splitting
 - [ ] Profile enemy update cost with larger encounter counts
 - [ ] Profile particle churn under heavy combat
@@ -463,7 +492,7 @@ Use this checklist as the working execution plan.
 
 ## Stability and Validation
 
-- [ ] Re-run `npm run build` after each major refactor step
+- [x] Re-run `npm run build` after each major refactor step
 - [ ] Add a smoke checklist for desktop pointer-lock interactions
 - [ ] Add a smoke checklist for mobile touch interactions
 - [ ] Test repeated opening and closing of every overlay

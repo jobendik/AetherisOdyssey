@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { G } from '../core/GameState';
-import { mkMesh, mkLight, rwp, clamp, mkCelMat, mkCelEmissiveMat, legacyLightIntensity } from '../core/Helpers';
+import { mkMesh, mkLight, mkPointLight, rwp, clamp, mkCelMat, mkCelEmissiveMat } from '../core/Helpers';
 import { ui } from '../ui/UIRefs';
 import type { ChestLoot } from '../types';
 import { SFX } from '../audio/Audio';
@@ -65,7 +65,7 @@ export function populateChests(count: number): void {
     else if (lootItem.t === 'artifact') { const a = getA(lootItem.id); if (a) rarity = a.rarity; }
     else if (lootItem.t === 'food') { const f = getF(lootItem.id); if (f) rarity = f.rarity; }
     const glowColor = RARITY_HEX[rarity] || 0xffdd66;
-    ch.add(mkLight(glowColor, 0.4, 8, 0, 1, 0) as unknown as THREE.Object3D);
+    ch.add(mkLight(glowColor, 0.4, 8, 0, 1, 0));
     ch.position.set(x, y, z);
     ch.rotation.y = Math.random() * Math.PI * 2;
     ch.traverse((o) => {
@@ -81,6 +81,11 @@ export function populateChests(count: number): void {
     });
   }
 }
+
+/* Cached geometry for chest opening beam effect */
+const _beamGeo = new THREE.CylinderGeometry(0.15, 0.6, 6, 8, 1, true);
+/* Cached reusable offset vector */
+const _chestOffset = new THREE.Vector3();
 
 export function openChest(ch: (typeof G.entities.chests)[number]): void {
   ch.opened = true;
@@ -109,23 +114,27 @@ export function openChest(ch: (typeof G.entities.chests)[number]): void {
   }
 
   /* ── Golden light beam ── */
-  const beamGeo = new THREE.CylinderGeometry(0.15, 0.6, 6, 8, 1, true);
   const beamMat = new THREE.MeshBasicMaterial({ color: 0xffee88, transparent: true, opacity: 0.45, side: THREE.DoubleSide });
-  const beam = new THREE.Mesh(beamGeo, beamMat);
-  beam.position.copy(cPos).add(new THREE.Vector3(0, 4, 0));
+  const beam = new THREE.Mesh(_beamGeo, beamMat);
+  _chestOffset.set(0, 4, 0);
+  beam.position.copy(cPos).add(_chestOffset);
   G.scene!.add(beam);
 
   /* ── Golden point light ── */
-  const glow = new THREE.PointLight(0xffdd44, legacyLightIntensity(3), 12);
-  glow.position.copy(cPos).add(new THREE.Vector3(0, 2, 0));
+  const glow = mkPointLight(0xffdd44, 3, 12);
+  _chestOffset.set(0, 2, 0);
+  glow.position.copy(cPos).add(_chestOffset);
   G.scene!.add(glow);
 
   /* ── Expanding golden ring ── */
-  spawnRing(cPos.clone().add(new THREE.Vector3(0, 0.3, 0)), '#ffdd44', 3);
+  _chestOffset.set(0, 0.3, 0);
+  spawnRing(cPos.clone().add(_chestOffset), '#ffdd44', 3);
 
   /* ── Burst particles ── */
-  spawnParts(cPos.clone().add(new THREE.Vector3(0, 1.5, 0)), '#ffdd44', 40, 16);
-  setTimeout(() => spawnParts(cPos.clone().add(new THREE.Vector3(0, 2.0, 0)), '#ffffcc', 20, 10), 200);
+  _chestOffset.set(0, 1.5, 0);
+  spawnParts(cPos.clone().add(_chestOffset), '#ffdd44', 40, 16);
+  const cPosStored = cPos.clone();
+  setTimeout(() => spawnParts(_chestOffset.set(0, 2.0, 0).add(cPosStored), '#ffffcc', 20, 10), 200);
 
   /* ── Fade out beam & light ── */
   const fadeStart = performance.now() + 600;
@@ -133,15 +142,15 @@ export function openChest(ch: (typeof G.entities.chests)[number]): void {
   const fadeBeam = () => {
     const p = clamp((performance.now() - fadeStart) / fadeDur, 0, 1);
     beamMat.opacity = 0.45 * (1 - p);
-    glow.intensity = 3 * (1 - p);
+    (glow.material as THREE.SpriteMaterial).opacity = 1 - p;
     beam.scale.set(1 + p * 0.3, 1 - p * 0.2, 1 + p * 0.3);
     if (p < 1) {
       requestAnimationFrame(fadeBeam);
     } else {
       G.scene!.remove(beam);
       G.scene!.remove(glow);
-      beamGeo.dispose();
       beamMat.dispose();
+      (glow.material as THREE.SpriteMaterial).dispose();
     }
   };
   requestAnimationFrame(fadeBeam);

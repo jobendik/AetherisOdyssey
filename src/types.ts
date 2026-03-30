@@ -31,6 +31,9 @@ export interface PartyMember {
   burstRadius: number;
   burstDmgMult: number;
   burstDur: number;
+  equippedWeapon?: string;
+  equippedArtifact?: string | null;
+  equippedArtifacts?: string[];
 }
 
 export type ElementType = 'Anemo' | 'Electro' | 'Cryo' | 'Pyro' | 'Hydro';
@@ -179,12 +182,14 @@ export interface UpdraftEntity {
 }
 
 export interface ParticleEntity {
-  mesh: THREE.Mesh;
+  mesh: THREE.Object3D;
   life: number;
   vel: THREE.Vector3;
   ring?: boolean;
   ss?: number;
   es?: number;
+  cleanup?: 'pool' | 'dispose' | 'afterimage' | 'shared';
+  afterimage?: boolean;
 }
 
 export interface ProjectileEntity {

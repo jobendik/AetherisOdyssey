@@ -52,8 +52,6 @@ const achievements: Achievement[] = [
     check: () => G.comboHits >= 25, rewardXp: 50, rewardMora: 300, unlocked: false },
 ];
 
-let achPanel: HTMLElement | null = null;
-
 function showAchievementPopup(ach: Achievement): void {
   const popup = document.createElement('div');
   popup.className = 'achPopup';
@@ -83,38 +81,6 @@ export function updateAchievements(): void {
       showAchievementPopup(ach);
     }
   }
-}
-
-export function toggleAchievementPanel(): void {
-  if (achPanel) {
-    achPanel.remove();
-    achPanel = null;
-    return;
-  }
-  achPanel = document.createElement('div');
-  achPanel.id = 'achPanel';
-
-  const title = document.createElement('div');
-  title.className = 'achPanelTitle';
-  const done = achievements.filter(a => a.unlocked).length;
-  title.textContent = `Achievements (${done}/${achievements.length})`;
-  achPanel.appendChild(title);
-
-  for (const ach of achievements) {
-    const row = document.createElement('div');
-    row.className = 'achRow' + (ach.unlocked ? ' achUnlocked' : '');
-    row.innerHTML = `
-      <span class="achIcon">${ach.icon}</span>
-      <span class="achInfo">
-        <strong>${ach.title}</strong><br>
-        <small>${ach.desc}</small>
-      </span>
-      <span class="achStatus">${ach.unlocked ? '✓' : '—'}</span>
-    `;
-    achPanel.appendChild(row);
-  }
-
-  ui.uiRoot.appendChild(achPanel);
 }
 
 export function getAchievements() {

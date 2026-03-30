@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { G } from '../core/GameState';
-import { mkMesh, mkCelMat, mkCelEmissiveMat, rwp, wH, legacyLightIntensity } from '../core/Helpers';
+import { mkMesh, mkPointLight, mkCelMat, mkCelEmissiveMat, rwp, wH } from '../core/Helpers';
 import { SFX } from '../audio/Audio';
 import { ui } from '../ui/UIRefs';
 import { updateHUD } from '../ui/HUD';
@@ -50,7 +50,7 @@ export function populateCampfires(count: number): void {
     flame.name = 'campFlame';
     group.add(flame);
     /* Point light */
-    const light = new THREE.PointLight(0xff6622, legacyLightIntensity(1.5), 8);
+    const light = mkPointLight(0xff6622, 1.5, 8);
     light.position.set(0, 1, 0);
     group.add(light);
 

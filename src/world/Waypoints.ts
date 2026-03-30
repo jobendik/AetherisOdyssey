@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { G } from '../core/GameState';
-import { wH, legacyLightIntensity } from '../core/Helpers';
+import { wH, mkPointLight } from '../core/Helpers';
 import { SFX } from '../audio/Audio';
 import { spawnRing, spawnParts } from '../systems/Particles';
 import { ui } from '../ui/UIRefs';
@@ -10,7 +10,7 @@ export interface Waypoint {
   pos: THREE.Vector3;
   unlocked: boolean;
   name: string;
-  light: THREE.PointLight;
+  light: THREE.Sprite;
 }
 
 const WP_LOCS: { x: number; z: number; name: string }[] = [
@@ -58,7 +58,7 @@ export function buildWaypoints(): void {
     grp.add(crystal);
 
     /* Glow light */
-    const light = new THREE.PointLight(0x446688, legacyLightIntensity(0.3), 6);
+    const light = mkPointLight(0x446688, 0.3, 6);
     light.position.y = 3;
     grp.add(light);
 
@@ -88,8 +88,8 @@ function activateWP(wp: Waypoint): void {
       mat.emissiveIntensity = 0.8;
     }
   });
-  wp.light.color.setHex(0x66ddff);
-  wp.light.intensity = 1.2;
+  (wp.light.material as THREE.SpriteMaterial).color.setHex(0x66ddff);
+  (wp.light.material as THREE.SpriteMaterial).opacity = 0.5;
 }
 
 export function updateWaypoints(dt: number): void {
@@ -147,14 +147,36 @@ let wpOverlayEl: HTMLElement | null = null;
 
 export function toggleWaypointUI(): void {
   if (wpOverlayEl) {
-    wpOverlayEl.remove();
-    wpOverlayEl = null;
+    closeWaypointUI();
     return;
   }
 
+  openWaypointUI();
+}
+
+export function isWaypointUIOpen(): boolean {
+  return wpOverlayEl !== null;
+}
+
+export function closeWaypointUI(): void {
+  if (!wpOverlayEl) return;
+  SFX.menuClose();
+  wpOverlayEl.remove();
+  wpOverlayEl = null;
+  if (G.hasStarted && G.health > 0) {
+    if (G.mobile) G.isActive = true;
+    else document.body.requestPointerLock();
+  }
+}
+
+function openWaypointUI(): void {
+  SFX.menuOpen();
+  G.isActive = false;
+  if (!G.mobile && document.pointerLockElement) document.exitPointerLock();
+
   const overlay = document.createElement('div');
   overlay.id = 'waypointOverlay';
-  overlay.innerHTML = `<div class="wpTitle">TELEPORT WAYPOINTS</div><div class="wpList"></div><div class="wpClose">Press M to close</div>`;
+  overlay.innerHTML = `<div class="wpTitle">TELEPORT WAYPOINTS</div><button class="wpCloseBtn" type="button">✕ Close</button><div class="wpList"></div><div class="wpClose">Press Esc to close</div>`;
   const list = overlay.querySelector('.wpList')!;
   waypoints.forEach((wp, i) => {
     const btn = document.createElement('button');
@@ -168,6 +190,7 @@ export function toggleWaypointUI(): void {
     }
     list.appendChild(btn);
   });
+  overlay.querySelector('.wpCloseBtn')!.addEventListener('click', closeWaypointUI);
   document.body.appendChild(overlay);
   wpOverlayEl = overlay;
 }

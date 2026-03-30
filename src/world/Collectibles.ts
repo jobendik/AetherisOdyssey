@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { G } from '../core/GameState';
-import { rwp, wH, clamp, legacyLightIntensity } from '../core/Helpers';
+import { rwp, wH, clamp, mkPointLight } from '../core/Helpers';
 import { ui } from '../ui/UIRefs';
 import { spawnParts } from '../systems/Particles';
 import { SFX } from '../audio/Audio';
@@ -52,7 +52,7 @@ export function populateCollectibles(count: number): void {
       }),
     );
     cr.position.set(pt.x, pt.y + el, pt.z);
-    cr.add(new THREE.PointLight(0x85f9ff, legacyLightIntensity(0.8), 12));
+    cr.add(mkPointLight(0x85f9ff, 0.8, 12));
     G.scene!.add(cr);
     G.entities.collectibles.push({ mesh: cr, startY: pt.y + el, collected: false });
     if (el > 4.5) createUpdraft(pt.x, pt.z, pt.y + el + 2.5);
@@ -67,14 +67,19 @@ export function updateCollectibles(dt: number): void {
     if (c.collected) continue;
     c.mesh.rotation.y += dt * 1.1;
     c.mesh.position.y = c.startY + Math.sin(G.worldTime * 2 + c.mesh.position.x * 0.2) * 0.42;
-    if (G.player!.position.distanceTo(c.mesh.position) < 2.8) {
+    const dx = G.player!.position.x - c.mesh.position.x;
+    const dy = G.player!.position.y - c.mesh.position.y;
+    const dz = G.player!.position.z - c.mesh.position.z;
+    if (dx * dx + dy * dy + dz * dz < 2.8 * 2.8) {
       c.collected = true;
       c.mesh.visible = false;
       spawnParts(c.mesh.position.clone(), '#8cfaff', 22, 18);
       SFX.collect();
       G.burstEnergy = clamp(G.burstEnergy + 18, 0, 100);
       gainXp(20);
-      const rem = G.entities.collectibles.filter((cc) => !cc.collected).length;
+      /* Count remaining without filtering the whole array */
+      let rem = 0;
+      for (const cc of G.entities.collectibles) if (!cc.collected) rem++;
       if (rem > 0) {
         ui.objectiveText.textContent = 'Gather ' + rem + ' crystal' + (rem === 1 ? '' : 's');
         ui.objectiveSubtext.textContent = 'Follow minimap.';
@@ -116,7 +121,7 @@ export function populateAerialOrbs(count: number): void {
       new THREE.MeshBasicMaterial({ color: 0xffcc44, transparent: true, opacity: 0.5 }),
     );
     orb.add(ring);
-    orb.add(new THREE.PointLight(0xffdd55, legacyLightIntensity(1.2), 15));
+    orb.add(mkPointLight(0xffdd55, 1.2, 15));
     orb.position.set(pt.x, height, pt.z);
     G.scene!.add(orb);
     aerialOrbs.push({ mesh: orb, collected: false, startY: height });
@@ -134,7 +139,10 @@ export function updateAerialOrbs(dt: number): void {
     /* Ring expand/contract */
     const ring = o.mesh.children[0] as THREE.Mesh;
     if (ring) ring.rotation.z += dt * 2;
-    if (G.player!.position.distanceTo(o.mesh.position) < 3) {
+    const dx = G.player!.position.x - o.mesh.position.x;
+    const dy = G.player!.position.y - o.mesh.position.y;
+    const dz = G.player!.position.z - o.mesh.position.z;
+    if (dx * dx + dy * dy + dz * dz < 9) {
       o.collected = true;
       o.mesh.visible = false;
       spawnParts(o.mesh.position.clone(), '#ffdd44', 28, 22);
@@ -198,7 +206,7 @@ export function populateOreNodes(count: number): void {
     base.position.y = 0.2;
     group.add(base);
 
-    group.add(new THREE.PointLight(0x55ccff, legacyLightIntensity(0.5), 8));
+    group.add(mkPointLight(0x55ccff, 0.5, 8));
     group.position.set(pt.x, y, pt.z);
     G.scene!.add(group);
     oreNodes.push({ mesh: group, hp: 3, mined: false, pos: group.position.clone() });
